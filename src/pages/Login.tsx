@@ -19,7 +19,7 @@ export default function Login() {
     return null;
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
@@ -28,16 +28,19 @@ export default function Login() {
       setLoading(false);
       return;
     }
-    setTimeout(() => {
-      const ok = login(password);
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, 400));
+      const ok = await login(password);
       if (ok) {
         setLocation("/dashboard");
       } else {
         setError("Incorrect password. Please try again.");
         setPassword("");
       }
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   }
 
   return (

@@ -45,9 +45,26 @@ Update `.env` with your local values:
 ```env
 PORT=5173
 BASE_PATH=/
+VITE_APP_PASSWORD_HASH=
 VITE_APP_PASSWORD=replace-with-a-strong-password
 VITE_APPS_SCRIPT_URL=
 VITE_APPS_SCRIPT_TOKEN=
+```
+
+For deployed builds, prefer `VITE_APP_PASSWORD_HASH` and leave `VITE_APP_PASSWORD`
+empty. Generate a SHA-256 hash of the password, then set the 64-character hex
+hash in `.env` or in Vercel Environment Variables:
+
+```powershell
+$password = Read-Host "Password"
+$bytes = [Text.Encoding]::UTF8.GetBytes($password)
+$hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+([BitConverter]::ToString($hash) -replace "-", "").ToLower()
+```
+
+```env
+VITE_APP_PASSWORD_HASH=your-sha256-password-hash
+VITE_APP_PASSWORD=
 ```
 
 Start the development server:
@@ -107,7 +124,7 @@ When configured, the dashboard loads data from Google Sheets on startup and writ
 
 Do not commit `.env`. It is intentionally ignored by git.
 
-`VITE_APP_PASSWORD` is bundled into the frontend by Vite. It is suitable as a lightweight access gate for private/local use, but production deployments should use server-side authentication.
+`VITE_APP_PASSWORD_HASH` and `VITE_APP_PASSWORD` are bundled into the frontend by Vite. The hash option avoids exposing the plain password in the JavaScript bundle, but it is still only a lightweight access gate. Production deployments should use server-side authentication for stronger protection.
 
 ## Project Structure
 
