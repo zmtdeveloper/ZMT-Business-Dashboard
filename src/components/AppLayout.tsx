@@ -30,7 +30,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
   return (
     <div className="flex flex-col h-full">
       <div className="h-16 flex items-center px-5 border-b border-sidebar-border shrink-0">
-        <div className="flex items-center gap-2.5">
+        <Link href="/dashboard" onClick={onNavClick} data-testid="nav-logo" className="flex items-center gap-2.5 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-400">
           <div className="w-8 h-8 rounded-md flex items-center justify-center text-white font-bold text-lg shadow-lg" style={{ background: "linear-gradient(135deg,#0891b2,#06b6d4)" }}>
             Z
           </div>
@@ -38,7 +38,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
             <p className="font-bold text-white text-sm leading-tight">ZMT Business</p>
             <p className="text-xs text-cyan-400/60 leading-tight">Dashboard</p>
           </div>
-        </div>
+        </Link>
       </div>
 
       <nav className="flex-1 py-5 px-3 overflow-y-auto space-y-0.5">
@@ -160,12 +160,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="w-5 h-5" />
           </Button>
-          <div className="flex items-center gap-2">
+          <Link href="/dashboard" className="flex items-center gap-2 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-400">
             <div className="w-6 h-6 rounded flex items-center justify-center text-white font-bold text-sm" style={{ background: "linear-gradient(135deg,#0891b2,#06b6d4)" }}>
               Z
             </div>
             <span className="font-semibold text-sm text-white">{currentPage}</span>
-          </div>
+          </Link>
         </div>
 
         <main className="flex-1 flex flex-col overflow-auto">

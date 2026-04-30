@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useData, Order, Payment } from "@/context/DataContext";
+import { useData, Client, Order, Payment } from "@/context/DataContext";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -11,12 +11,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, Pencil, Trash2, ShoppingCart } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, ShoppingCart, UserPlus, X } from "lucide-react";
 
 const emptyForm = {
   clientId: "", productId: "", quantity: "1", deliveryDate: new Date().toISOString().slice(0, 10),
-  paidAmount: "0", paymentMethod: "Cash" as Payment["method"], orderStatus: "Pending" as Order["orderStatus"], notes: "",
+  totalAmount: "", paidAmount: "0", paymentMethod: "Cash" as Payment["method"], orderStatus: "Pending" as Order["orderStatus"], notes: "",
 };
+
+const emptyClientForm = { name: "", phone: "", email: "", address: "", notes: "" };
 
 const PAYMENT_METHODS: Payment["method"][] = ["Cash", "Bank Transfer", "JazzCash", "Easypaisa", "Other"];
 
@@ -34,13 +36,19 @@ const PAYMENT_STATUS_COLORS: Record<string, string> = {
 };
 
 export default function Orders() {
-  const { orders, clients, products, addOrder, updateOrder, deleteOrder } = useData();
+  const { orders, clients, products, addClient, addOrder, updateOrder, deleteOrder } = useData();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Order | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [clientQuery, setClientQuery] = useState("");
+  const [productQuery, setProductQuery] = useState("");
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
+  const [quickClientOpen, setQuickClientOpen] = useState(false);
+  const [clientForm, setClientForm] = useState(emptyClientForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const filtered = useMemo(() =>
@@ -53,12 +61,43 @@ export default function Orders() {
     [orders, search, statusFilter]
   );
 
+  const selectedClient = clients.find(c => c.id === form.clientId);
   const selectedProduct = products.find(p => p.id === form.productId);
-  const calcTotalAmount = () => (selectedProduct?.salePrice || 0) * (Number(form.quantity) || 1);
-  const calcRemainingAmount = () => Math.max(0, calcTotalAmount() - (Number(form.paidAmount) || 0));
+  const clientMatches = useMemo(() => {
+    const query = clientQuery.trim().toLowerCase();
+    return clients
+      .filter(c => !query ||
+        c.name.toLowerCase().includes(query) ||
+        c.phone.toLowerCase().includes(query) ||
+        c.email.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [clients, clientQuery]);
+  const productMatches = useMemo(() => {
+    const query = productQuery.trim().toLowerCase();
+    return products
+      .filter(p => p.status === "Active")
+      .filter(p => !query ||
+        p.name.toLowerCase().includes(query) ||
+        String(p.salePrice).includes(query))
+      .slice(0, 8);
+  }, [products, productQuery]);
+  const getQuantityValue = (quantity = form.quantity) => Math.max(1, Number(quantity) || 1);
+  const getAutoTotalAmount = (product = selectedProduct, quantity = form.quantity) =>
+    (product?.salePrice || 0) * getQuantityValue(quantity);
+  const calcTotalAmount = () => {
+    const typedTotal = Number(form.totalAmount);
+    if (form.totalAmount.trim() !== "" && Number.isFinite(typedTotal)) {
+      return Math.max(0, typedTotal);
+    }
+    return getAutoTotalAmount();
+  };
+  const getEnteredPaidAmount = () => Math.max(0, Number(form.paidAmount) || 0);
+  const calcPaidAmount = () => Math.min(getEnteredPaidAmount(), calcTotalAmount());
+  const calcRemainingAmount = () => Math.max(0, calcTotalAmount() - calcPaidAmount());
   const calcPaymentStatus = (): Order["paymentStatus"] => {
     const total = calcTotalAmount();
-    const paid = Number(form.paidAmount) || 0;
+    const paid = calcPaidAmount();
+    if (total <= 0) return paid > 0 ? "Paid" : "Unpaid";
     if (paid >= total) return "Paid";
     if (paid > 0) return "Partial";
     return "Unpaid";
@@ -73,6 +112,12 @@ export default function Orders() {
   function openAdd() {
     setEditTarget(null);
     setForm(emptyForm);
+    setClientQuery("");
+    setProductQuery("");
+    setClientPickerOpen(false);
+    setProductPickerOpen(false);
+    setQuickClientOpen(false);
+    setClientForm(emptyClientForm);
     setDialogOpen(true);
   }
 
@@ -80,9 +125,53 @@ export default function Orders() {
     setEditTarget(o);
     setForm({
       clientId: o.clientId, productId: o.productId, quantity: String(o.quantity),
-      deliveryDate: o.deliveryDate, paidAmount: String(o.paidAmount), paymentMethod: "Cash", orderStatus: o.orderStatus, notes: o.notes,
+      deliveryDate: o.deliveryDate, totalAmount: String(o.totalAmount), paidAmount: String(o.paidAmount), paymentMethod: "Cash", orderStatus: o.orderStatus, notes: o.notes,
     });
+    setClientQuery(o.clientName);
+    setProductQuery(o.productName);
+    setClientPickerOpen(false);
+    setProductPickerOpen(false);
+    setQuickClientOpen(false);
+    setClientForm(emptyClientForm);
     setDialogOpen(true);
+  }
+
+  function selectClient(client: Client) {
+    setForm(f => ({ ...f, clientId: client.id }));
+    setClientQuery(client.name);
+    setClientPickerOpen(false);
+  }
+
+  function openQuickClient() {
+    setClientForm(f => ({ ...f, name: f.name || clientQuery.trim() }));
+    setQuickClientOpen(true);
+  }
+
+  function handleProductChange(productId: string) {
+    const product = products.find(p => p.id === productId);
+    const totalAmount = product ? getAutoTotalAmount(product) : 0;
+    setForm(f => ({
+      ...f,
+      productId,
+      totalAmount: totalAmount > 0 ? String(totalAmount) : f.totalAmount,
+    }));
+    if (product) setProductQuery(product.name);
+    setProductPickerOpen(false);
+  }
+
+  function handleQuantityChange(quantity: string) {
+    setForm(f => {
+      const product = products.find(p => p.id === f.productId);
+      const previousAutoTotal = getAutoTotalAmount(product, f.quantity);
+      const nextAutoTotal = getAutoTotalAmount(product, quantity);
+      const shouldFollowProductPrice = !f.totalAmount || Number(f.totalAmount) === previousAutoTotal;
+
+      return {
+        ...f,
+        quantity,
+        totalAmount: shouldFollowProductPrice && nextAutoTotal > 0 ? String(nextAutoTotal) : f.totalAmount,
+      };
+    });
   }
 
   function handleSave() {
@@ -91,7 +180,7 @@ export default function Orders() {
     const product = products.find(p => p.id === form.productId);
     if (!client || !product) return;
     const total = calcTotalAmount();
-    const paid = Number(form.paidAmount) || 0;
+    const paid = calcPaidAmount();
     const remaining = Math.max(0, total - paid);
     const paymentStatus = calcPaymentStatus();
     const expiryDate = calcExpiryDate();
@@ -113,11 +202,31 @@ export default function Orders() {
     setDialogOpen(false);
   }
 
+  function handleQuickClientSave() {
+    if (!clientForm.name.trim()) return;
+    const client = addClient({
+      name: clientForm.name.trim(),
+      phone: clientForm.phone.trim(),
+      email: clientForm.email.trim(),
+      address: clientForm.address.trim(),
+      notes: clientForm.notes.trim(),
+    });
+    selectClient(client);
+    setClientForm(emptyClientForm);
+    setQuickClientOpen(false);
+    toast({ title: "Client added and selected" });
+  }
+
   function handleDelete(id: string) {
     deleteOrder(id);
     setDeleteId(null);
     toast({ title: "Order deleted", variant: "destructive" });
   }
+
+  const previewTotal = calcTotalAmount();
+  const previewPaid = calcPaidAmount();
+  const previewRemaining = calcRemainingAmount();
+  const paidExceedsTotal = getEnteredPaidAmount() > previewTotal;
 
   return (
     <div className="flex flex-col min-h-full">
@@ -222,49 +331,216 @@ export default function Orders() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg w-[calc(100vw-2rem)]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-3xl w-[calc(100vw-1rem)] h-[min(92vh,760px)] grid-rows-[auto,1fr,auto] overflow-hidden p-0 gap-0 border-cyan-100 shadow-2xl">
+          <DialogHeader className="px-5 py-4 border-b border-cyan-100 bg-gradient-to-r from-cyan-50 via-white to-emerald-50">
             <DialogTitle>{editTarget ? "Edit Order" : "Create New Order"}</DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              Total comes from product price x quantity. Paid amount is capped to the order total, so remaining stays sane.
+            </p>
           </DialogHeader>
-          <div className="space-y-4 py-2 max-h-[65vh] overflow-y-auto pr-1">
+          <div className="space-y-4 min-h-0 overflow-y-auto overflow-x-visible p-4 sm:p-5 bg-gradient-to-b from-cyan-50/30 to-white">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Client *</Label>
-                <Select value={form.clientId} onValueChange={v => setForm(f => ({ ...f, clientId: v }))}>
-                  <SelectTrigger data-testid="select-order-client">
-                    <SelectValue placeholder="Select client..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Client *</Label>
+                  <Button type="button" variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={openQuickClient}>
+                    <UserPlus className="w-3.5 h-3.5" /> New
+                  </Button>
+                </div>
+                <div className="relative z-30">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      data-testid="input-order-client-search"
+                      placeholder="Search client by name, phone or email..."
+                      value={clientQuery}
+                      onFocus={() => {
+                        setClientPickerOpen(true);
+                        setProductPickerOpen(false);
+                      }}
+                      onChange={e => {
+                        const value = e.target.value;
+                        setClientQuery(value);
+                        setClientPickerOpen(true);
+                        if (!value || (form.clientId && value !== selectedClient?.name)) setForm(f => ({ ...f, clientId: "" }));
+                      }}
+                      className="pl-9 pr-9"
+                    />
+                    {form.clientId && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setForm(f => ({ ...f, clientId: "" }));
+                          setClientQuery("");
+                          setClientPickerOpen(true);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  {clientPickerOpen && (
+                    <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-md border border-cyan-100 bg-card shadow-xl">
+                      {clientMatches.length === 0 ? (
+                        <div className="p-3 text-xs text-muted-foreground">
+                          No client found.
+                          <button type="button" className="ml-1 font-semibold text-cyan-700 hover:underline" onMouseDown={e => e.preventDefault()} onClick={openQuickClient}>Create new</button>
+                        </div>
+                      ) : clientMatches.map(client => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          data-testid={`option-order-client-${client.id}`}
+                          className={`w-full px-3 py-2 text-left text-sm hover:bg-muted/60 ${form.clientId === client.id ? "bg-cyan-50 text-cyan-800" : ""}`}
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => selectClient(client)}
+                        >
+                          <span className="block font-medium truncate">{client.name}</span>
+                          <span className="block text-xs text-muted-foreground truncate">{client.phone || client.email || "No contact saved"}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {selectedClient && (
+                  <div className="rounded-md border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800">
+                    <span className="font-semibold">{selectedClient.name}</span>
+                    {selectedClient.phone ? <span className="text-cyan-700/80"> - {selectedClient.phone}</span> : null}
+                  </div>
+                )}
               </div>
-              <div className="space-y-1.5">
+
+              <div className="space-y-2">
                 <Label>Product *</Label>
-                <Select value={form.productId} onValueChange={v => setForm(f => ({ ...f, productId: v }))}>
-                  <SelectTrigger data-testid="select-order-product">
-                    <SelectValue placeholder="Select product..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.filter(p => p.status === "Active").map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.name} — {formatCurrency(p.salePrice)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative z-20">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      data-testid="input-order-product-search"
+                      placeholder="Search product..."
+                      value={productQuery}
+                      onFocus={() => {
+                        setProductPickerOpen(true);
+                        setClientPickerOpen(false);
+                      }}
+                      onChange={e => {
+                        const value = e.target.value;
+                        setProductQuery(value);
+                        setProductPickerOpen(true);
+                        if (!value || (form.productId && value !== selectedProduct?.name)) setForm(f => ({ ...f, productId: "" }));
+                      }}
+                      className="pl-9 pr-9"
+                    />
+                    {form.productId && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setForm(f => ({ ...f, productId: "" }));
+                          setProductQuery("");
+                          setProductPickerOpen(true);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  {productPickerOpen && (
+                    <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-44 overflow-y-auto rounded-md border border-cyan-100 bg-card shadow-xl">
+                      {productMatches.length === 0 ? (
+                        <div className="p-3 text-xs text-muted-foreground">No active product found.</div>
+                      ) : productMatches.map(product => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          data-testid={`option-order-product-${product.id}`}
+                          className={`w-full px-3 py-2 text-left text-sm hover:bg-muted/60 ${form.productId === product.id ? "bg-emerald-50 text-emerald-800" : ""}`}
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => handleProductChange(product.id)}
+                        >
+                          <span className="block font-medium truncate">{product.name}</span>
+                          <span className="block text-xs text-muted-foreground truncate">
+                            Sale {formatCurrency(product.salePrice)} - {product.durationDays} days
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {selectedProduct && (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                    <span className="font-semibold">{selectedProduct.name}</span>
+                    <span className="text-emerald-700/80"> - {formatCurrency(selectedProduct.salePrice)}</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {selectedProduct && (
-              <div className="bg-cyan-50 rounded-lg p-3 text-xs text-cyan-700 space-y-0.5">
-                <p>Price: {formatCurrency(selectedProduct.salePrice)} | Duration: {selectedProduct.durationDays} days</p>
-                <p className="font-semibold">Total: {formatCurrency(calcTotalAmount())} | Expiry: {calcExpiryDate() || "—"}</p>
+            {quickClientOpen && (
+              <div className="rounded-lg border border-cyan-200 bg-cyan-50/60 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-cyan-900">Quick Add Client</p>
+                  <Button type="button" variant="ghost" size="icon" className="w-7 h-7" onClick={() => setQuickClientOpen(false)}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Name *</Label>
+                    <Input data-testid="input-quick-client-name" placeholder="Client name" value={clientForm.name} onChange={e => setClientForm(f => ({ ...f, name: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Phone</Label>
+                    <Input data-testid="input-quick-client-phone" placeholder="0321-1234567" value={clientForm.phone} onChange={e => setClientForm(f => ({ ...f, phone: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Email</Label>
+                    <Input data-testid="input-quick-client-email" type="email" placeholder="email@example.com" value={clientForm.email} onChange={e => setClientForm(f => ({ ...f, email: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="button" size="sm" data-testid="btn-save-quick-client" disabled={!clientForm.name.trim()} onClick={handleQuickClientSave} className="bg-cyan-600 hover:bg-cyan-700 text-white">
+                    Add & Select
+                  </Button>
+                </div>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            {selectedProduct && (
+              <div className="rounded-xl border border-cyan-100 bg-white p-3 shadow-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="rounded-lg bg-cyan-50 p-2">
+                    <p className="text-cyan-700/70">Unit price</p>
+                    <p className="font-bold text-cyan-900">{formatCurrency(selectedProduct.salePrice)}</p>
+                  </div>
+                  <div className="rounded-lg bg-blue-50 p-2">
+                    <p className="text-blue-700/70">Order total</p>
+                    <p className="font-bold text-blue-900">{formatCurrency(previewTotal)}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50 p-2">
+                    <p className="text-emerald-700/70">Paid</p>
+                    <p className="font-bold text-emerald-900">{formatCurrency(previewPaid)}</p>
+                  </div>
+                  <div className="rounded-lg bg-amber-50 p-2">
+                    <p className="text-amber-700/70">Remaining</p>
+                    <p className="font-bold text-amber-900">{formatCurrency(previewRemaining)}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Duration {selectedProduct.durationDays} days - Expiry {calcExpiryDate() || "-"} - Status {calcPaymentStatus()}
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Quantity</Label>
-                <Input data-testid="input-order-quantity" type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+                <Input data-testid="input-order-quantity" type="number" min="1" value={form.quantity} onChange={e => handleQuantityChange(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Order Total (PKR)</Label>
+                <Input data-testid="input-order-total" type="number" min="0" placeholder="Auto from product x qty" value={form.totalAmount} onChange={e => setForm(f => ({ ...f, totalAmount: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
                 <Label>Delivery Date</Label>
@@ -274,9 +550,14 @@ export default function Orders() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Paid Amount (PKR)</Label>
+                <Label>Paid / Received (PKR)</Label>
                 <Input data-testid="input-order-paid" type="number" min="0" value={form.paidAmount} onChange={e => setForm(f => ({ ...f, paidAmount: e.target.value }))} />
-                {selectedProduct && <p className="text-xs text-muted-foreground">Remaining: {formatCurrency(calcRemainingAmount())} — {calcPaymentStatus()}</p>}
+                <p className="text-xs text-muted-foreground">Remaining: {formatCurrency(previewRemaining)} - {calcPaymentStatus()}</p>
+                {paidExceedsTotal && (
+                  <p className="text-xs font-medium text-amber-700">
+                    Paid is higher than total, so it will save as {formatCurrency(previewPaid)}.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>Order Status</Label>
@@ -315,7 +596,7 @@ export default function Orders() {
               <Textarea data-testid="input-order-notes" placeholder="Notes..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
           </div>
-          <DialogFooter className="flex-col sm:flex-row gap-2">
+          <DialogFooter className="flex-col sm:flex-row gap-2 border-t border-cyan-100 bg-white px-5 py-4">
             <Button variant="outline" onClick={() => setDialogOpen(false)} className="w-full sm:w-auto">Cancel</Button>
             <Button data-testid="btn-save-order" onClick={handleSave} disabled={!form.clientId || !form.productId} className="bg-cyan-600 hover:bg-cyan-700 text-white w-full sm:w-auto">
               {editTarget ? "Save Changes" : "Create Order"}

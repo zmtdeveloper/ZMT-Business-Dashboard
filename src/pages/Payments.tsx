@@ -51,17 +51,19 @@ export default function Payments() {
     if (!form.orderId || !form.amount) return;
     const order = orders.find(o => o.id === form.orderId);
     if (!order) return;
+    const amount = Math.min(Math.max(0, Number(form.amount) || 0), order.remainingAmount);
+    if (amount <= 0) return;
     addPayment({
       orderId: form.orderId,
       clientId: order.clientId,
       clientName: order.clientName,
       orderDescription: order.productName,
-      amount: Number(form.amount),
+      amount,
       method: form.method,
       paymentDate: form.paymentDate,
       notes: form.notes,
     });
-    toast({ title: `Payment of ${formatCurrency(Number(form.amount))} recorded` });
+    toast({ title: `Payment of ${formatCurrency(amount)} recorded` });
     setDialogOpen(false);
   }
 
@@ -184,6 +186,8 @@ export default function Payments() {
                 <Input
                   data-testid="input-payment-amount"
                   type="number"
+                  min="0"
+                  max={selectedOrder?.remainingAmount}
                   placeholder={selectedOrder ? String(selectedOrder.remainingAmount) : "0"}
                   value={form.amount}
                   onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}

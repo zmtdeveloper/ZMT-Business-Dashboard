@@ -168,8 +168,9 @@ export default function Products() {
                 <Input data-testid="input-product-sale-price" type="number" placeholder="15000" value={form.salePrice} onChange={e => setForm(f => ({ ...f, salePrice: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Cost Price (PKR)</Label>
+                <Label>Cost Price (optional)</Label>
                 <Input data-testid="input-product-cost-price" type="number" placeholder="3000" value={form.costPrice} onChange={e => setForm(f => ({ ...f, costPrice: e.target.value }))} />
+                <p className="text-xs text-muted-foreground">Only used for profit and expense reports.</p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

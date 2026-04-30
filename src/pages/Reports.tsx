@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useData } from "@/context/DataContext";
 import { formatCurrency, formatDate, daysUntil, getMonthKey, getMonthLabel } from "@/lib/format";
+import { getOrderCostsForMonth, getPendingForMonth, getReceivedForMonth, getSalesForMonth } from "@/lib/finance";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,25 +21,26 @@ function getMonthOptions() {
 }
 
 export default function Reports() {
-  const { orders, payments, expenses } = useData();
+  const { orders, payments, expenses, products } = useData();
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
   );
   const monthOptions = getMonthOptions();
 
-  const monthPayments = useMemo(() =>
-    payments.filter(p => getMonthKey(p.paymentDate) === selectedMonth), [payments, selectedMonth]);
   const monthExpenses = useMemo(() =>
     expenses.filter(e => getMonthKey(e.expenseDate) === selectedMonth), [expenses, selectedMonth]);
   const monthOrders = useMemo(() =>
-    orders.filter(o => getMonthKey(o.deliveryDate) === selectedMonth), [orders, selectedMonth]);
+    orders.filter(o => getMonthKey(o.deliveryDate) === selectedMonth && o.orderStatus !== "Cancelled"), [orders, selectedMonth]);
+  const monthOrderCosts = useMemo(() =>
+    getOrderCostsForMonth(orders, products, selectedMonth), [orders, products, selectedMonth]);
 
-  const totalReceived = monthPayments.reduce((s, p) => s + p.amount, 0);
-  const totalExpenses = monthExpenses.reduce((s, e) => s + e.amount, 0);
-  const totalSales = monthOrders.reduce((s, o) => s + o.totalAmount, 0);
-  const totalPending = monthOrders.reduce((s, o) => s + o.remainingAmount, 0);
+  const totalReceived = getReceivedForMonth(orders, payments, selectedMonth);
+  const totalExpenses = monthExpenses.reduce((s, e) => s + e.amount, 0) + monthOrderCosts;
+  const totalSales = getSalesForMonth(orders, selectedMonth);
+  const totalPending = getPendingForMonth(orders, selectedMonth);
   const netProfit = totalReceived - totalExpenses;
+  const paidOrderCount = monthOrders.filter(o => o.paidAmount > 0).length;
 
   const topProducts = useMemo(() => {
     const byProduct: Record<string, { name: string; revenue: number; orders: number }> = {};
@@ -64,7 +66,7 @@ export default function Reports() {
     orders.filter(o => {
       if (!o.expiryDate) return false;
       const days = daysUntil(o.expiryDate);
-      return days >= 0 && days <= 30 && o.orderStatus === "Pending";
+      return days <= 30 && o.orderStatus !== "Cancelled" && o.orderStatus !== "Renewed";
     }).sort((a, b) => daysUntil(a.expiryDate) - daysUntil(b.expiryDate)),
     [orders]
   );
@@ -77,10 +79,11 @@ export default function Reports() {
     }
     return months.map(mk => ({
       month: getMonthLabel(mk),
-      income: payments.filter(p => getMonthKey(p.paymentDate) === mk).reduce((s, p) => s + p.amount, 0),
-      expenses: expenses.filter(e => getMonthKey(e.expenseDate) === mk).reduce((s, e) => s + e.amount, 0),
+      sales: getSalesForMonth(orders, mk),
+      received: getReceivedForMonth(orders, payments, mk),
+      expenses: expenses.filter(e => getMonthKey(e.expenseDate) === mk).reduce((s, e) => s + e.amount, 0) + getOrderCostsForMonth(orders, products, mk),
     }));
-  }, [payments, expenses]);
+  }, [orders, payments, expenses, products]);
 
   return (
     <div className="flex flex-col min-h-full">
@@ -120,9 +123,9 @@ export default function Reports() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {[
             { label: "Total Sales", value: formatCurrency(totalSales), icon: TrendingUp, color: "text-cyan-600", bg: "bg-cyan-50", sub: `${monthOrders.length} orders` },
-            { label: "Total Received", value: formatCurrency(totalReceived), icon: Wallet, color: "text-emerald-600", bg: "bg-emerald-50", sub: `${monthPayments.length} payments` },
+            { label: "Total Received", value: formatCurrency(totalReceived), icon: Wallet, color: "text-emerald-600", bg: "bg-emerald-50", sub: `${paidOrderCount} paid orders` },
             { label: "Total Pending", value: formatCurrency(totalPending), icon: Clock, color: "text-amber-600", bg: "bg-amber-50", sub: "Outstanding" },
-            { label: "Total Expenses", value: formatCurrency(totalExpenses), icon: TrendingDown, color: "text-slate-600", bg: "bg-slate-100", sub: `${monthExpenses.length} records` },
+            { label: "Total Expenses", value: formatCurrency(totalExpenses), icon: TrendingDown, color: "text-slate-600", bg: "bg-slate-100", sub: monthOrderCosts > 0 ? `${monthExpenses.length} records + product costs` : `${monthExpenses.length} records` },
             { label: "Net Profit", value: formatCurrency(netProfit), icon: Wallet, color: netProfit >= 0 ? "text-emerald-600" : "text-rose-600", bg: netProfit >= 0 ? "bg-emerald-50" : "bg-rose-50", sub: totalReceived > 0 ? `${Math.round((netProfit / totalReceived) * 100)}% margin` : "N/A" },
           ].map(({ label, value, icon: Icon, color, bg, sub }) => (
             <Card key={label} className="shadow-sm">
@@ -143,8 +146,8 @@ export default function Reports() {
         {/* Chart */}
         <Card className="shadow-sm">
           <CardHeader className="border-b border-border pb-4">
-            <CardTitle className="text-base font-semibold">6-Month Income vs Expenses</CardTitle>
-            <CardDescription>Financial performance trend</CardDescription>
+            <CardTitle className="text-base font-semibold">6-Month Sales, Received & Expenses</CardTitle>
+            <CardDescription>Sales come from orders; received comes from paid amounts</CardDescription>
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
             <div className="h-52 sm:h-64">
@@ -152,14 +155,15 @@ export default function Reports() {
                 <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} dy={8} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} tickFormatter={v => `₨${v / 1000}k`} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} tickFormatter={v => `Rs ${v / 1000}k`} />
                   <Tooltip
                     contentStyle={{ borderRadius: "8px", border: "1px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))", fontSize: 12 }}
                     formatter={(v: number) => [formatCurrency(v), ""]}
                   />
                   <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} iconType="circle" />
-                  <Bar dataKey="income" name="Income" fill="#0891b2" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                  <Bar dataKey="expenses" name="Expenses" fill="#94a3b8" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                  <Bar dataKey="sales" name="Sales" fill="#0284c7" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="received" name="Received" fill="#059669" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="expenses" name="Expenses" fill="#94a3b8" radius={[4, 4, 0, 0]} maxBarSize={28} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -212,9 +216,9 @@ export default function Reports() {
             <CardHeader className="bg-amber-50/50 border-b border-amber-100 pb-3">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-500" />
-                <CardTitle className="text-sm font-semibold">Upcoming Renewals</CardTitle>
+                <CardTitle className="text-sm font-semibold">Renewal Alerts</CardTitle>
               </div>
-              <CardDescription className="text-amber-700/70 text-xs">Within 30 days</CardDescription>
+              <CardDescription className="text-amber-700/70 text-xs">Expired or within 30 days</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {expiringOrders.length === 0 ? (
@@ -230,7 +234,7 @@ export default function Reports() {
                           <p className="text-xs text-muted-foreground truncate">{o.productName}</p>
                         </div>
                         <Badge variant="outline" className={days <= 7 ? "bg-rose-50 text-rose-700 border-rose-200 text-xs shrink-0" : "bg-amber-50 text-amber-700 border-amber-200 text-xs shrink-0"}>
-                          {days === 0 ? "Today" : days < 0 ? `${Math.abs(days)}d ago` : `${days}d`}
+                          {days === 0 ? "Today" : days < 0 ? `Expired ${Math.abs(days)}d` : `${days}d`}
                         </Badge>
                       </div>
                     );

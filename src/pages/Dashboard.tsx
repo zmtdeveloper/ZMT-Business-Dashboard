@@ -1,6 +1,15 @@
 import { useMemo } from "react";
 import { useData } from "@/context/DataContext";
 import { formatCurrency, formatDate, daysUntil, getMonthKey, getMonthLabel } from "@/lib/format";
+import {
+  getOrderCostsForMonth,
+  getOrderCostsTotal,
+  getPendingTotal,
+  getReceivedForMonth,
+  getReceivedTotal,
+  getSalesForMonth,
+  getSalesTotal,
+} from "@/lib/finance";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,14 +24,29 @@ import {
 import { Link } from "wouter";
 
 export default function Dashboard() {
-  const { clients, orders, payments, expenses } = useData();
+  const { clients, orders, payments, expenses, products } = useData();
 
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-  const monthlyIncome = useMemo(() =>
-    payments.filter(p => getMonthKey(p.paymentDate) === currentMonth).reduce((sum, p) => sum + p.amount, 0),
-    [payments, currentMonth]
+  const monthlySales = useMemo(() =>
+    getSalesForMonth(orders, currentMonth),
+    [orders, currentMonth]
+  );
+
+  const totalSales = useMemo(() =>
+    getSalesTotal(orders),
+    [orders]
+  );
+
+  const monthlyReceived = useMemo(() =>
+    getReceivedForMonth(orders, payments, currentMonth),
+    [orders, payments, currentMonth]
+  );
+
+  const totalReceived = useMemo(() =>
+    getReceivedTotal(orders, payments),
+    [orders, payments]
   );
 
   const monthlyExpenses = useMemo(() =>
@@ -30,10 +54,25 @@ export default function Dashboard() {
     [expenses, currentMonth]
   );
 
-  const pendingPayments = useMemo(() =>
-    orders.filter(o => o.paymentStatus !== "Paid").reduce((sum, o) => sum + o.remainingAmount, 0),
-    [orders]
+  const monthlyOrderCosts = useMemo(() =>
+    getOrderCostsForMonth(orders, products, currentMonth),
+    [orders, products, currentMonth]
   );
+
+  const totalExpenses = useMemo(() =>
+    expenses.reduce((sum, e) => sum + e.amount, 0),
+    [expenses]
+  );
+
+  const totalOrderCosts = useMemo(() =>
+    getOrderCostsTotal(orders, products),
+    [orders, products]
+  );
+
+  const monthlyBusinessExpenses = monthlyExpenses + monthlyOrderCosts;
+  const totalBusinessExpenses = totalExpenses + totalOrderCosts;
+
+  const pendingPayments = useMemo(() => getPendingTotal(orders), [orders]);
 
   const pendingOrders = orders.filter(o => o.orderStatus === "Pending").length;
   const completedOrders = orders.filter(o => o.orderStatus === "Completed").length;
@@ -42,7 +81,7 @@ export default function Dashboard() {
     orders.filter(o => {
       if (!o.expiryDate) return false;
       const days = daysUntil(o.expiryDate);
-      return days >= 0 && days <= 30 && o.orderStatus === "Pending";
+      return days <= 30 && o.orderStatus !== "Cancelled" && o.orderStatus !== "Renewed";
     }).sort((a, b) => daysUntil(a.expiryDate) - daysUntil(b.expiryDate)),
     [orders]
   );
@@ -60,28 +99,31 @@ export default function Dashboard() {
     }
     return months.map(mk => ({
       month: getMonthLabel(mk),
-      income: payments.filter(p => getMonthKey(p.paymentDate) === mk).reduce((s, p) => s + p.amount, 0),
-      expenses: expenses.filter(e => getMonthKey(e.expenseDate) === mk).reduce((s, e) => s + e.amount, 0),
+      sales: getSalesForMonth(orders, mk),
+      received: getReceivedForMonth(orders, payments, mk),
+      expenses: expenses.filter(e => getMonthKey(e.expenseDate) === mk).reduce((s, e) => s + e.amount, 0) + getOrderCostsForMonth(orders, products, mk),
     }));
-  }, [payments, expenses]);
+  }, [orders, payments, expenses, products]);
 
   const topExpenses = useMemo(() => {
     const byCategory: Record<string, number> = {};
     expenses.filter(e => getMonthKey(e.expenseDate) === currentMonth).forEach(e => {
       byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
     });
+    const productCosts = getOrderCostsForMonth(orders, products, currentMonth);
+    if (productCosts > 0) byCategory["Product Cost"] = (byCategory["Product Cost"] || 0) + productCosts;
     return Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 3);
-  }, [expenses, currentMonth]);
+  }, [expenses, orders, products, currentMonth]);
 
   const stats = [
     { label: "Total Clients", value: clients.length, icon: Users, color: "text-cyan-600", bg: "bg-cyan-50", trend: "All time" },
-    { label: "Total Orders", value: orders.length, icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50", trend: `${completedOrders} completed` },
+    { label: "Total Sales", value: formatCurrency(totalSales), icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50", trend: `${formatCurrency(monthlySales)} this month` },
+    { label: "Total Received", value: formatCurrency(totalReceived), icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50", trend: `${formatCurrency(monthlyReceived)} this month` },
+    { label: "Pending Payments", value: formatCurrency(pendingPayments), icon: Clock, color: "text-amber-600", bg: "bg-amber-50", trend: `${orders.filter(o => o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled").length} orders` },
     { label: "Pending Orders", value: pendingOrders, icon: PackageOpen, color: "text-amber-600", bg: "bg-amber-50", trend: "Action needed" },
-    { label: "Expiring Soon", value: expiringOrders.length, icon: CalendarClock, color: "text-rose-600", bg: "bg-rose-50", trend: "Within 30 days" },
-    { label: "Monthly Income", value: formatCurrency(monthlyIncome), icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50", trend: "This month" },
-    { label: "Monthly Expenses", value: formatCurrency(monthlyExpenses), icon: TrendingDown, color: "text-slate-600", bg: "bg-slate-100", trend: "This month" },
-    { label: "Net Profit", value: formatCurrency(monthlyIncome - monthlyExpenses), icon: Wallet, color: "text-cyan-600", bg: "bg-cyan-50", trend: monthlyIncome > 0 ? `${Math.round(((monthlyIncome - monthlyExpenses) / monthlyIncome) * 100)}% margin` : "N/A" },
-    { label: "Pending Payments", value: formatCurrency(pendingPayments), icon: Clock, color: "text-amber-600", bg: "bg-amber-50", trend: `${orders.filter(o => o.paymentStatus !== "Paid").length} orders` },
+    { label: "Renewal Alerts", value: expiringOrders.length, icon: CalendarClock, color: "text-rose-600", bg: "bg-rose-50", trend: "Expired or within 30 days" },
+    { label: "Total Expenses", value: formatCurrency(totalBusinessExpenses), icon: TrendingDown, color: "text-slate-600", bg: "bg-slate-100", trend: `${formatCurrency(monthlyBusinessExpenses)} this month` },
+    { label: "Net Profit", value: formatCurrency(totalReceived - totalBusinessExpenses), icon: Wallet, color: totalReceived - totalBusinessExpenses >= 0 ? "text-cyan-600" : "text-rose-600", bg: totalReceived - totalBusinessExpenses >= 0 ? "bg-cyan-50" : "bg-rose-50", trend: totalReceived > 0 ? `${Math.round(((totalReceived - totalBusinessExpenses) / totalReceived) * 100)}% margin` : "N/A" },
   ];
 
   return (
@@ -90,7 +132,7 @@ export default function Dashboard() {
       <header className="hidden lg:flex h-16 bg-card border-b border-border items-center justify-between px-8 sticky top-0 z-10">
         <div>
           <h1 className="text-xl font-bold text-foreground">Dashboard Overview</h1>
-          <p className="text-xs text-muted-foreground">Welcome back — here's your business summary.</p>
+          <p className="text-xs text-muted-foreground">Welcome back - here's your business summary.</p>
         </div>
         <Link href="/orders">
           <Button data-testid="btn-new-order" className="bg-cyan-600 hover:bg-cyan-700 text-white font-medium">
@@ -142,8 +184,8 @@ export default function Dashboard() {
             {/* Chart */}
             <Card className="shadow-sm">
               <CardHeader className="border-b border-border pb-4">
-                <CardTitle className="text-base font-semibold">Income vs Expenses</CardTitle>
-                <CardDescription>Last 6 months performance</CardDescription>
+                <CardTitle className="text-base font-semibold">Sales, Received & Expenses</CardTitle>
+                <CardDescription>Last 6 months performance from order totals and paid amounts</CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
                 <div className="h-52 sm:h-64">
@@ -154,14 +196,15 @@ export default function Dashboard() {
                         tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} dy={8} />
                       <YAxis axisLine={false} tickLine={false}
                         tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
-                        tickFormatter={v => `₨${v / 1000}k`} />
+                        tickFormatter={v => `Rs ${v / 1000}k`} />
                       <Tooltip
                         contentStyle={{ borderRadius: "8px", border: "1px solid hsl(var(--border))", background: "hsl(var(--card))", color: "hsl(var(--foreground))", fontSize: 12 }}
                         formatter={(v: number) => [formatCurrency(v), ""]}
                       />
                       <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} iconType="circle" />
-                      <Bar dataKey="income" name="Income" fill="#0891b2" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                      <Bar dataKey="expenses" name="Expenses" fill="#94a3b8" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                      <Bar dataKey="sales" name="Sales" fill="#0284c7" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                      <Bar dataKey="received" name="Received" fill="#059669" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                      <Bar dataKey="expenses" name="Expenses" fill="#94a3b8" radius={[4, 4, 0, 0]} maxBarSize={28} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -237,7 +280,7 @@ export default function Dashboard() {
                   <AlertCircle className="w-4 h-4 text-amber-500" />
                   <CardTitle className="text-sm font-semibold">Renewal Alerts</CardTitle>
                 </div>
-                <CardDescription className="text-amber-700/70 text-xs">Expiring within 30 days</CardDescription>
+                <CardDescription className="text-amber-700/70 text-xs">Expired or expiring within 30 days</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 {expiringOrders.length === 0 ? (
@@ -251,13 +294,13 @@ export default function Dashboard() {
                           <div className="min-w-0 mr-3">
                             <p className="font-semibold text-sm truncate">{o.clientName}</p>
                             <p className="text-xs text-muted-foreground truncate">{o.productName}</p>
-                            <p className="text-xs font-semibold mt-0.5" style={{ color: days <= 7 ? "#dc2626" : "#d97706" }}>
+                            <p className="text-xs font-semibold mt-0.5" style={{ color: days < 0 || days <= 7 ? "#dc2626" : "#d97706" }}>
                               {days === 0 ? "Expires today" : days < 0 ? `Expired ${Math.abs(days)}d ago` : `${days}d left`}
                             </p>
                           </div>
                           <Link href="/orders">
-                            <Button size="sm" className="bg-amber-100 text-amber-800 hover:bg-amber-200 shadow-none font-semibold text-xs px-2.5 shrink-0">
-                              Renew
+                            <Button size="sm" className={days < 0 ? "bg-rose-100 text-rose-800 hover:bg-rose-200 shadow-none font-semibold text-xs px-2.5 shrink-0" : "bg-amber-100 text-amber-800 hover:bg-amber-200 shadow-none font-semibold text-xs px-2.5 shrink-0"}>
+                              {days < 0 ? "Renew Now" : "Renew"}
                             </Button>
                           </Link>
                         </div>
