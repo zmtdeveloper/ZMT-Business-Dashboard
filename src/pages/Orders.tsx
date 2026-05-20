@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useData, Client, Order, Payment } from "@/context/DataContext";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { openWhatsAppReminder, printOrderInvoice } from "@/lib/businessActions";
@@ -51,11 +51,35 @@ export default function Orders() {
   const [quickClientOpen, setQuickClientOpen] = useState(false);
   const [clientForm, setClientForm] = useState(emptyClientForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [focusedOrderId, setFocusedOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    function focusOrderFromHash() {
+      const match = window.location.hash.match(/^#order-(.+)$/);
+      const id = match?.[1] ? decodeURIComponent(match[1]) : "";
+      if (!id) return;
+
+      setFocusedOrderId(id);
+      setStatusFilter("All");
+      window.setTimeout(() => {
+        document.getElementById(`order-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 80);
+    }
+
+    const events = ["hashchange", "pushState", "replaceState", "popstate"];
+    focusOrderFromHash();
+    events.forEach(eventName => window.addEventListener(eventName, focusOrderFromHash));
+    return () => events.forEach(eventName => window.removeEventListener(eventName, focusOrderFromHash));
+  }, []);
 
   const filtered = useMemo(() =>
     orders.filter(o => {
-      const matchSearch = o.clientName.toLowerCase().includes(search.toLowerCase()) ||
-        o.productName.toLowerCase().includes(search.toLowerCase());
+      const query = search.trim().toLowerCase();
+      const matchSearch = !query ||
+        o.clientName.toLowerCase().includes(query) ||
+        o.productName.toLowerCase().includes(query) ||
+        o.notes.toLowerCase().includes(query) ||
+        o.id.toLowerCase().includes(query);
       const matchStatus = statusFilter === "All" || o.orderStatus === statusFilter;
       return matchSearch && matchStatus;
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
@@ -264,7 +288,7 @@ export default function Orders() {
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input data-testid="input-search-orders" placeholder="Search by client or product..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+                <Input data-testid="input-search-orders" placeholder="Search client, product, order notes, email..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger data-testid="select-order-status-filter" className="w-full sm:w-40">
@@ -304,10 +328,16 @@ export default function Orders() {
                     </TableCell>
                   </TableRow>
                 ) : filtered.map(o => (
-                  <TableRow key={o.id} data-testid={`row-order-${o.id}`} className="hover:bg-muted/30">
+                  <TableRow
+                    key={o.id}
+                    id={`order-${o.id}`}
+                    data-testid={`row-order-${o.id}`}
+                    className={focusedOrderId === o.id ? "bg-cyan-50 ring-2 ring-inset ring-cyan-300 hover:bg-cyan-50" : "hover:bg-muted/30"}
+                  >
                     <TableCell>
                       <p className="font-semibold text-sm">{o.clientName}</p>
                       <p className="text-xs text-muted-foreground">{o.productName}</p>
+                      {o.notes && <p className="mt-1 max-w-md truncate text-xs text-cyan-700">Notes: {o.notes}</p>}
                       <p className="text-xs text-muted-foreground md:hidden">{o.orderStatus}</p>
                     </TableCell>
                     <TableCell className="font-semibold whitespace-nowrap">{formatCurrency(o.totalAmount)}</TableCell>

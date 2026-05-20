@@ -41,6 +41,14 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
     const query = globalSearch.trim().toLowerCase();
     if (!query) return [];
 
+    const getOrderMatchDetail = (order: typeof orders[number]) => {
+      const notes = order.notes.trim();
+      if (notes.toLowerCase().includes(query)) {
+        return `Notes: ${notes}`;
+      }
+      return `${order.productName} - ${order.paymentStatus}`;
+    };
+
     const clientResults = clients
       .filter(client =>
         client.name.toLowerCase().includes(query) ||
@@ -58,13 +66,15 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
     const orderResults = orders
       .filter(order =>
         order.clientName.toLowerCase().includes(query) ||
-        order.productName.toLowerCase().includes(query)
+        order.productName.toLowerCase().includes(query) ||
+        order.notes.toLowerCase().includes(query) ||
+        order.id.toLowerCase().includes(query)
       )
-      .slice(0, 4)
+      .slice(0, 6)
       .map(order => ({
-        href: "/orders",
-        label: order.clientName,
-        detail: `${order.productName} - ${order.paymentStatus}`,
+        href: `/orders#order-${order.id}`,
+        label: `${order.clientName} - ${order.productName}`,
+        detail: getOrderMatchDetail(order),
         type: "Order",
       }));
 
