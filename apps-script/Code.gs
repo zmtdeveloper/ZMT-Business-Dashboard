@@ -16,6 +16,8 @@
  *    - Execute as: Me
  *    - Who has access: Anyone
  * 6. Copy the Web App URL and paste it into your .env as VITE_APPS_SCRIPT_URL
+ * 7. Open the deployed URL once with ?action=setup&token=YOUR_TOKEN
+ *    This creates/repairs all tab headers, including PersonalExpenses.
  *
  * Sheet Column Structure (must match exactly):
  * Clients:  id | name | phone | email | address | notes | createdAt
@@ -50,45 +52,39 @@ const SHEET_HEADERS = {
   PersonalExpenses: ["id", "title", "category", "amount", "expenseDate", "method", "notes", "createdAt"]
 };
 
-const SHEET_ALIASES = {
-  PersonalExpenses: ["Personal Expenses", "Owner Wallet", "OwnerWallet", "Personal Costs"]
-};
-
 function getCanonicalSheetName(sheetName) {
-  if (SHEET_HEADERS[sheetName]) return sheetName;
-  const names = Object.keys(SHEET_ALIASES);
-  for (let i = 0; i < names.length; i++) {
-    const canonical = names[i];
-    if (SHEET_ALIASES[canonical].indexOf(sheetName) !== -1) return canonical;
-  }
   return sheetName;
+}
+
+function ensureHeaders(sheet, canonicalName) {
+  const headers = SHEET_HEADERS[canonicalName];
+  if (!headers) throw new Error("Unknown sheet: " + canonicalName);
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#e2e8f0");
+  sheet.setFrozenRows(1);
 }
 
 function getOrCreateSheet(sheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const canonicalName = getCanonicalSheetName(sheetName);
-  const aliases = SHEET_ALIASES[canonicalName] || [];
+  const headers = SHEET_HEADERS[canonicalName];
+  if (!headers) throw new Error("Unknown sheet: " + sheetName);
+
   let sheet = ss.getSheetByName(canonicalName);
-  if (!sheet) {
-    for (let i = 0; i < aliases.length; i++) {
-      sheet = ss.getSheetByName(aliases[i]);
-      if (sheet) break;
-    }
-  }
   if (!sheet) {
     sheet = ss.insertSheet(canonicalName);
   }
-  const headers = SHEET_HEADERS[canonicalName];
-  if (headers) {
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#e2e8f0");
-    sheet.setFrozenRows(1);
-  }
+
+  ensureHeaders(sheet, canonicalName);
   return sheet;
 }
 
 function sheetToObjects(sheet, sheetName) {
-  const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName || sheet.getName())];
+  const canonicalName = getCanonicalSheetName(sheetName || sheet.getName());
+  const headers = SHEET_HEADERS[canonicalName];
+  if (!headers) throw new Error("Unknown sheet: " + sheetName);
+
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
@@ -111,15 +107,19 @@ function sheetToObjects(sheet, sheetName) {
 
 function findRowById(sheet, id, sheetName) {
   const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName || sheet.getName())];
+  if (!headers) throw new Error("Unknown sheet: " + sheetName);
+
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return -1;
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
-  const idx = ids.indexOf(id);
+  const targetId = String(id || "");
+  const idx = ids.findIndex(value => String(value || "") === targetId);
   return idx === -1 ? -1 : idx + 2; // 1-indexed row number
 }
 
 function objectToRow(sheetName, obj) {
   const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName)];
+  if (!headers) throw new Error("Unknown sheet: " + sheetName);
   return headers.map(key => obj[key] !== undefined ? obj[key] : "");
 }
 
@@ -321,6 +321,20 @@ function testInsertClient() {
 
 function testGetAllClients() {
   const result = getAllRows("Clients");
+  Logger.log(JSON.stringify(result));
+}
+
+function testInsertPersonalExpense() {
+  const result = insertRow("PersonalExpenses", {
+    id: "test-personal-001",
+    title: "Test personal cost",
+    category: "Other",
+    amount: 100,
+    expenseDate: new Date().toISOString().slice(0, 10),
+    method: "Cash",
+    notes: "Owner Wallet sync test",
+    createdAt: new Date().toISOString()
+  });
   Logger.log(JSON.stringify(result));
 }
 

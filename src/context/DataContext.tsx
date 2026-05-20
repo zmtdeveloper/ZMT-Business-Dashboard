@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { useAuth } from "@/context/AuthContext";
 import { isSheetsConfigured, loadAllFromSheets, syncAllToSheets, syncToSheets } from "@/services/sheetsSync";
 
 export interface Client {
@@ -130,11 +131,40 @@ interface DataContextType {
   isSyncing: boolean;
   lastSynced: Date | null;
   lastSyncError: string | null;
+  isSheetSyncEnabled: boolean;
 }
 
 const DataContext = createContext<DataContextType | null>(null);
-const PERSONAL_EXPENSES_KEY = "zmt_personal_expenses";
-const PERSONAL_EXPENSES_BACKUP_KEY = "zmt_personal_expenses_backup";
+
+type StorageKeys = {
+  clients: string;
+  products: string;
+  orders: string;
+  payments: string;
+  expenses: string;
+  personalExpenses: string;
+};
+
+type SeedData = {
+  clients: Client[];
+  products: Product[];
+  orders: Order[];
+  payments: Payment[];
+  expenses: Expense[];
+  personalExpenses: PersonalExpense[];
+};
+
+function createStorageKeys(prefix: "" | "showcase"): StorageKeys {
+  const scoped = (name: string) => prefix ? `zmt_${prefix}_${name}` : `zmt_${name}`;
+  return {
+    clients: scoped("clients"),
+    products: scoped("products"),
+    orders: scoped("orders"),
+    payments: scoped("payments"),
+    expenses: scoped("expenses"),
+    personalExpenses: scoped("owner_wallet_costs"),
+  };
+}
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -153,17 +183,8 @@ function save<T>(key: string, data: T[]) {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
-function loadPersonalExpenses() {
-  const primary = load<PersonalExpense>(PERSONAL_EXPENSES_KEY, []);
-  if (primary.length > 0) return primary;
-
-  const backup = load<PersonalExpense>(PERSONAL_EXPENSES_BACKUP_KEY, []);
-  if (backup.length > 0) {
-    save(PERSONAL_EXPENSES_KEY, backup);
-    return backup;
-  }
-
-  return primary;
+function loadPersonalExpenses(keys: StorageKeys) {
+  return load<PersonalExpense>(keys.personalExpenses, []);
 }
 
 const now = () => new Date().toISOString();
@@ -234,8 +255,25 @@ function isSuccessfulSyncResult(result: unknown) {
   return !!result && typeof result === "object" && (result as { success?: unknown }).success === true;
 }
 
-function isPersonalExpensesSyncResult(result: unknown) {
-  return !!result && typeof result === "object" && (result as { sheet?: unknown }).sheet === "PersonalExpenses";
+function getSyncFailureMessage(failedResults: unknown[]) {
+  const firstFailure = failedResults.find(result => result && typeof result === "object") as
+    | { sheet?: unknown; message?: unknown; reason?: unknown }
+    | undefined;
+
+  const sheet = typeof firstFailure?.sheet === "string" ? firstFailure.sheet : "";
+  const detail = typeof firstFailure?.message === "string"
+    ? firstFailure.message
+    : typeof firstFailure?.reason === "string"
+      ? firstFailure.reason
+      : "";
+
+  if (sheet === "PersonalExpenses") {
+    return detail
+      ? `Owner Wallet sync failed. ${detail}`
+      : "Owner Wallet sync failed. The Google Sheet must have a PersonalExpenses tab with the required header row.";
+  }
+
+  return detail ? `Some changes could not sync to Google Sheets. ${detail}` : "Some changes could not sync to Google Sheets.";
 }
 
 function createSheetIdSets() {
@@ -341,6 +379,65 @@ const SEED_EXPENSES: Expense[] = [
   { id: "e6", title: "Hosting Renewal", category: "Software / Tools", amount: 6000, expenseDate: "2024-04-10", notes: "Annual hosting plan", createdAt: "2024-04-10T10:00:00.000Z" },
 ];
 
+const DEMO_CLIENTS: Client[] = [
+  { id: "demo-c1", name: "Nova Cafe", phone: "0300-1112233", email: "hello@novacafe.test", address: "Lahore", notes: "Demo client for monthly social work", createdAt: "2026-02-10T10:00:00.000Z" },
+  { id: "demo-c2", name: "Urban Clinic", phone: "0312-2223344", email: "admin@urbanclinic.test", address: "Karachi", notes: "Prefers WhatsApp reminders", createdAt: "2026-03-05T10:00:00.000Z" },
+  { id: "demo-c3", name: "Pixel Studio", phone: "0333-3334455", email: "team@pixelstudio.test", address: "Islamabad", notes: "Design retainer prospect", createdAt: "2026-04-12T10:00:00.000Z" },
+];
+
+const DEMO_PRODUCTS: Product[] = [
+  { id: "demo-p1", name: "Social Media Starter", salePrice: 18000, costPrice: 4500, durationDays: 30, status: "Active", notes: "Monthly content package", createdAt: "2026-02-01T10:00:00.000Z" },
+  { id: "demo-p2", name: "Website Care Plan", salePrice: 32000, costPrice: 8000, durationDays: 30, status: "Active", notes: "Maintenance and updates", createdAt: "2026-02-01T10:00:00.000Z" },
+  { id: "demo-p3", name: "Ads Management", salePrice: 25000, costPrice: 6000, durationDays: 30, status: "Active", notes: "Meta and Google campaign management", createdAt: "2026-02-01T10:00:00.000Z" },
+  { id: "demo-p4", name: "Branding Kit", salePrice: 45000, costPrice: 12000, durationDays: 14, status: "Active", notes: "Logo, colors, and basic brand assets", createdAt: "2026-02-01T10:00:00.000Z" },
+];
+
+const DEMO_ORDERS: Order[] = [
+  { id: "demo-o1", clientId: "demo-c1", clientName: "Nova Cafe", productId: "demo-p1", productName: "Social Media Starter", quantity: 1, deliveryDate: "2026-03-01", expiryDate: "2026-03-31", totalAmount: 18000, paidAmount: 18000, remainingAmount: 0, paymentStatus: "Paid", orderStatus: "Completed", notes: "Demo completed order", createdAt: "2026-03-01T10:00:00.000Z" },
+  { id: "demo-o2", clientId: "demo-c2", clientName: "Urban Clinic", productId: "demo-p2", productName: "Website Care Plan", quantity: 1, deliveryDate: "2026-04-05", expiryDate: "2026-05-05", totalAmount: 32000, paidAmount: 20000, remainingAmount: 12000, paymentStatus: "Partial", orderStatus: "Pending", notes: "Demo renewal due", createdAt: "2026-04-05T10:00:00.000Z" },
+  { id: "demo-o3", clientId: "demo-c3", clientName: "Pixel Studio", productId: "demo-p4", productName: "Branding Kit", quantity: 1, deliveryDate: "2026-05-02", expiryDate: "2026-05-16", totalAmount: 45000, paidAmount: 45000, remainingAmount: 0, paymentStatus: "Paid", orderStatus: "Completed", notes: "Ready for upsell", createdAt: "2026-05-02T10:00:00.000Z" },
+  { id: "demo-o4", clientId: "demo-c1", clientName: "Nova Cafe", productId: "demo-p3", productName: "Ads Management", quantity: 1, deliveryDate: "2026-05-10", expiryDate: "2026-06-09", totalAmount: 25000, paidAmount: 0, remainingAmount: 25000, paymentStatus: "Unpaid", orderStatus: "Pending", notes: "Waiting for first payment", createdAt: "2026-05-10T10:00:00.000Z" },
+];
+
+const DEMO_PAYMENTS: Payment[] = [
+  { id: "demo-py1", orderId: "demo-o1", clientId: "demo-c1", clientName: "Nova Cafe", orderDescription: "Social Media Starter", amount: 18000, method: "Bank Transfer", paymentDate: "2026-03-01", notes: "", createdAt: "2026-03-01T10:00:00.000Z" },
+  { id: "demo-py2", orderId: "demo-o2", clientId: "demo-c2", clientName: "Urban Clinic", orderDescription: "Website Care Plan", amount: 20000, method: "JazzCash", paymentDate: "2026-04-05", notes: "Advance", createdAt: "2026-04-05T10:00:00.000Z" },
+  { id: "demo-py3", orderId: "demo-o3", clientId: "demo-c3", clientName: "Pixel Studio", orderDescription: "Branding Kit", amount: 45000, method: "Cash", paymentDate: "2026-05-02", notes: "", createdAt: "2026-05-02T10:00:00.000Z" },
+];
+
+const DEMO_EXPENSES: Expense[] = [
+  { id: "demo-e1", title: "Design tools", category: "Software / Tools", amount: 6500, expenseDate: "2026-05-01", notes: "Demo software cost", createdAt: "2026-05-01T10:00:00.000Z" },
+  { id: "demo-e2", title: "Freelancer content support", category: "Salary", amount: 12000, expenseDate: "2026-05-06", notes: "Demo project help", createdAt: "2026-05-06T10:00:00.000Z" },
+  { id: "demo-e3", title: "Campaign testing", category: "Marketing / Ads", amount: 7000, expenseDate: "2026-04-20", notes: "Demo ad spend", createdAt: "2026-04-20T10:00:00.000Z" },
+];
+
+const DEMO_PERSONAL_EXPENSES: PersonalExpense[] = [
+  { id: "demo-pe1", title: "Fuel", category: "Fuel", amount: 4000, expenseDate: "2026-05-03", method: "Cash", notes: "Demo owner cost", createdAt: "2026-05-03T10:00:00.000Z" },
+  { id: "demo-pe2", title: "Lunch meetings", category: "Food", amount: 2500, expenseDate: "2026-05-07", method: "Cash", notes: "Demo meals", createdAt: "2026-05-07T10:00:00.000Z" },
+  { id: "demo-pe3", title: "Home groceries", category: "Home", amount: 9000, expenseDate: "2026-05-11", method: "Bank Transfer", notes: "Demo household spend", createdAt: "2026-05-11T10:00:00.000Z" },
+  { id: "demo-pe4", title: "Family support", category: "Family", amount: 6000, expenseDate: "2026-04-25", method: "Easypaisa", notes: "Demo personal transfer", createdAt: "2026-04-25T10:00:00.000Z" },
+];
+
+function getSeedData(isShowcase: boolean): SeedData {
+  return isShowcase
+    ? {
+        clients: DEMO_CLIENTS,
+        products: DEMO_PRODUCTS,
+        orders: DEMO_ORDERS,
+        payments: DEMO_PAYMENTS,
+        expenses: DEMO_EXPENSES,
+        personalExpenses: DEMO_PERSONAL_EXPENSES,
+      }
+    : {
+        clients: SEED_CLIENTS,
+        products: SEED_PRODUCTS,
+        orders: SEED_ORDERS,
+        payments: SEED_PAYMENTS,
+        expenses: SEED_EXPENSES,
+        personalExpenses: [],
+      };
+}
+
 const SHEET_NAMES = ["Clients", "Products", "Orders", "Payments", "Expenses", "PersonalExpenses"] as const;
 type SheetName = typeof SHEET_NAMES[number];
 type SheetPayload = Partial<Record<SheetName, unknown[]>>;
@@ -412,17 +509,12 @@ function normalizeSheetPayload(payload: SheetPayload) {
     createdAt: toIsoDateTime(row.createdAt),
   })).filter(row => row.id);
 
-  const personalExpenseRows = [
-    ...(payload.PersonalExpenses ?? []),
-    ...((payload as Record<string, unknown[]>)["Personal Expenses"] ?? []),
-    ...((payload as Record<string, unknown[]>)["Owner Wallet"] ?? []),
-    ...((payload as Record<string, unknown[]>)["OwnerWallet"] ?? []),
-  ];
+  const personalExpenseRows = payload.PersonalExpenses ?? [];
 
   const personalExpenses = personalExpenseRows.map((row: any, index): PersonalExpense => {
-    const title = toText(row.title ?? row.name ?? row.description, "Personal cost");
-    const amount = toNumber(row.amount ?? row.cost ?? row.value);
-    const expenseDate = toDateInputValue(row.expenseDate ?? row.date ?? row.paymentDate);
+    const title = toText(row.title, "Personal cost");
+    const amount = toNumber(row.amount);
+    const expenseDate = toDateInputValue(row.expenseDate);
     const fallbackId = `personal-${expenseDate}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index}`;
 
     return {
@@ -440,33 +532,46 @@ function normalizeSheetPayload(payload: SheetPayload) {
   return { clients, products, orders, payments, expenses, personalExpenses };
 }
 
-function seedIfEmpty() {
-  if (!localStorage.getItem("zmt_clients")) save("zmt_clients", SEED_CLIENTS);
-  if (!localStorage.getItem("zmt_products")) save("zmt_products", SEED_PRODUCTS);
-  if (!localStorage.getItem("zmt_orders")) save("zmt_orders", SEED_ORDERS);
-  if (!localStorage.getItem("zmt_payments")) save("zmt_payments", SEED_PAYMENTS);
-  if (!localStorage.getItem("zmt_expenses")) save("zmt_expenses", SEED_EXPENSES);
-  if (!localStorage.getItem(PERSONAL_EXPENSES_KEY)) {
-    save(PERSONAL_EXPENSES_KEY, load<PersonalExpense>(PERSONAL_EXPENSES_BACKUP_KEY, []));
+function seedIfEmpty(keys: StorageKeys, seedData: SeedData) {
+  if (!localStorage.getItem(keys.clients)) save(keys.clients, seedData.clients);
+  if (!localStorage.getItem(keys.products)) save(keys.products, seedData.products);
+  if (!localStorage.getItem(keys.orders)) save(keys.orders, seedData.orders);
+  if (!localStorage.getItem(keys.payments)) save(keys.payments, seedData.payments);
+  if (!localStorage.getItem(keys.expenses)) save(keys.expenses, seedData.expenses);
+  if (!localStorage.getItem(keys.personalExpenses)) {
+    save(keys.personalExpenses, seedData.personalExpenses);
   }
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  seedIfEmpty();
+  const { currentUser } = useAuth();
+  const storageKeys = createStorageKeys(currentUser?.storagePrefix ?? "");
+  const seedData = getSeedData(currentUser?.role === "showcase");
+  const canUseSheets = isSheetsConfigured && currentUser?.canSyncSheets === true;
 
-  const [clients, setClients] = useState<Client[]>(() => load("zmt_clients", []));
-  const [products, setProducts] = useState<Product[]>(() => load("zmt_products", []));
-  const [payments, setPayments] = useState<Payment[]>(() => load<Payment>("zmt_payments", []));
+  seedIfEmpty(storageKeys, seedData);
+
+  const [clients, setClients] = useState<Client[]>(() => load(storageKeys.clients, []));
+  const [products, setProducts] = useState<Product[]>(() => load(storageKeys.products, []));
+  const [payments, setPayments] = useState<Payment[]>(() => load<Payment>(storageKeys.payments, []));
   const [orders, setOrders] = useState<Order[]>(() =>
-    normalizeOrders(load<Order>("zmt_orders", []), load<Payment>("zmt_payments", []), load<Product>("zmt_products", []))
+    normalizeOrders(load<Order>(storageKeys.orders, []), load<Payment>(storageKeys.payments, []), load<Product>(storageKeys.products, []))
   );
-  const [expenses, setExpenses] = useState<Expense[]>(() => load("zmt_expenses", []));
-  const [personalExpenses, setPersonalExpenses] = useState<PersonalExpense[]>(() => loadPersonalExpenses());
+  const [expenses, setExpenses] = useState<Expense[]>(() => load(storageKeys.expenses, []));
+  const [personalExpenses, setPersonalExpenses] = useState<PersonalExpense[]>(() => loadPersonalExpenses(storageKeys));
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [lastSyncError, setLastSyncError] = useState<string | null>(null);
   const [lastDeleted, setLastDeleted] = useState<DeletedRecord | null>(null);
   const deletedIdsRef = useRef(createSheetIdSets());
+
+  const writeSheet = useCallback((action: string, sheet: string, data: unknown) => {
+    return canUseSheets ? syncToSheets(action, sheet, data) : Promise.resolve({ success: true, skipped: true, sheet });
+  }, [canUseSheets]);
+
+  const writeAllSheets = useCallback((allData: Record<string, unknown[]>) => {
+    return canUseSheets ? syncAllToSheets(allData) : Promise.resolve({ success: true, skipped: true });
+  }, [canUseSheets]);
 
   const applySheetPayload = useCallback((payload: SheetPayload, preserveLocal = false) => {
     const normalized = normalizeSheetPayload(payload);
@@ -495,7 +600,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshFromSheets = useCallback(async (preserveLocal = false) => {
-    if (!isSheetsConfigured) return;
+    if (!canUseSheets) return;
     const payload = await loadAllFromSheets();
     if (payload) {
       applySheetPayload(payload, preserveLocal);
@@ -503,62 +608,60 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     } else {
       setLastSyncError("Could not load data from Google Sheets.");
     }
-  }, [applySheetPayload]);
+  }, [applySheetPayload, canUseSheets]);
 
   const syncNow = useCallback(async () => {
-    if (!isSheetsConfigured) return;
+    if (!canUseSheets) return;
     setIsSyncing(true);
     try {
       await refreshFromSheets(false);
     } finally {
       setIsSyncing(false);
     }
-  }, [refreshFromSheets]);
+  }, [canUseSheets, refreshFromSheets]);
 
   const refreshAfterWrite = useCallback(async (writes: Promise<unknown> | Promise<unknown>[]) => {
-    if (!isSheetsConfigured) return;
+    if (!canUseSheets) return;
     setIsSyncing(true);
     try {
       const results = await Promise.all(Array.isArray(writes) ? writes : [writes]);
       const failedResults = results.filter(result => !isSuccessfulSyncResult(result));
-      const reportableFailures = failedResults.filter(result => !isPersonalExpensesSyncResult(result));
-      if (failedResults.length === 0 || reportableFailures.length === 0) {
+      if (failedResults.length === 0) {
         setLastSyncError(null);
         await refreshFromSheets(true);
       } else {
-        setLastSyncError("Some changes could not sync to Google Sheets.");
+        setLastSyncError(getSyncFailureMessage(failedResults));
       }
     } finally {
       setIsSyncing(false);
     }
-  }, [refreshFromSheets]);
+  }, [canUseSheets, refreshFromSheets]);
 
-  useEffect(() => { save("zmt_clients", clients); }, [clients]);
-  useEffect(() => { save("zmt_products", products); }, [products]);
-  useEffect(() => { save("zmt_orders", orders); }, [orders]);
-  useEffect(() => { save("zmt_payments", payments); }, [payments]);
-  useEffect(() => { save("zmt_expenses", expenses); }, [expenses]);
+  useEffect(() => { save(storageKeys.clients, clients); }, [clients, storageKeys.clients]);
+  useEffect(() => { save(storageKeys.products, products); }, [products, storageKeys.products]);
+  useEffect(() => { save(storageKeys.orders, orders); }, [orders, storageKeys.orders]);
+  useEffect(() => { save(storageKeys.payments, payments); }, [payments, storageKeys.payments]);
+  useEffect(() => { save(storageKeys.expenses, expenses); }, [expenses, storageKeys.expenses]);
   useEffect(() => {
-    save(PERSONAL_EXPENSES_KEY, personalExpenses);
-    if (personalExpenses.length > 0) save(PERSONAL_EXPENSES_BACKUP_KEY, personalExpenses);
-  }, [personalExpenses]);
+    save(storageKeys.personalExpenses, personalExpenses);
+  }, [personalExpenses, storageKeys.personalExpenses]);
 
   useEffect(() => {
-    if (!isSheetsConfigured) return;
+    if (!canUseSheets) return;
     syncNow();
-  }, [syncNow]);
+  }, [canUseSheets, syncNow]);
 
   const addClient = useCallback((data: Omit<Client, "id" | "createdAt">): Client => {
     const c = { ...data, id: genId(), createdAt: now() };
     setClients(prev => [...prev, c]);
-    void refreshAfterWrite(syncToSheets("insert", "Clients", c));
+    void refreshAfterWrite(writeSheet("insert", "Clients", c));
     return c;
-  }, [refreshAfterWrite]);
+  }, [refreshAfterWrite, writeSheet]);
 
   const updateClient = useCallback((c: Client) => {
     setClients(prev => prev.map(x => x.id === c.id ? c : x));
-    void refreshAfterWrite(syncToSheets("update", "Clients", c));
-  }, [refreshAfterWrite]);
+    void refreshAfterWrite(writeSheet("update", "Clients", c));
+  }, [refreshAfterWrite, writeSheet]);
 
   const deleteClient = useCallback((id: string) => {
     if (orders.some(order => order.clientId === id)) return false;
@@ -567,21 +670,21 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setLastDeleted({ label: client.name || "client", sheet: "Clients", data: client });
     deletedIdsRef.current.Clients.add(id);
     setClients(prev => prev.filter(x => x.id !== id));
-    void refreshAfterWrite(syncToSheets("delete", "Clients", { id }));
+    void refreshAfterWrite(writeSheet("delete", "Clients", { id }));
     return true;
-  }, [clients, orders, refreshAfterWrite]);
+  }, [clients, orders, refreshAfterWrite, writeSheet]);
 
   const addProduct = useCallback((data: Omit<Product, "id" | "createdAt">): Product => {
     const p = { ...data, id: genId(), createdAt: now() };
     setProducts(prev => [...prev, p]);
-    void refreshAfterWrite(syncToSheets("insert", "Products", p));
+    void refreshAfterWrite(writeSheet("insert", "Products", p));
     return p;
-  }, [refreshAfterWrite]);
+  }, [refreshAfterWrite, writeSheet]);
 
   const updateProduct = useCallback((p: Product) => {
     setProducts(prev => prev.map(x => x.id === p.id ? p : x));
-    void refreshAfterWrite(syncToSheets("update", "Products", p));
-  }, [refreshAfterWrite]);
+    void refreshAfterWrite(writeSheet("update", "Products", p));
+  }, [refreshAfterWrite, writeSheet]);
 
   const deleteProduct = useCallback((id: string) => {
     if (orders.some(order => order.productId === id)) return false;
@@ -590,9 +693,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setLastDeleted({ label: product.name || "product", sheet: "Products", data: product });
     deletedIdsRef.current.Products.add(id);
     setProducts(prev => prev.filter(x => x.id !== id));
-    void refreshAfterWrite(syncToSheets("delete", "Products", { id }));
+    void refreshAfterWrite(writeSheet("delete", "Products", { id }));
     return true;
-  }, [orders, products, refreshAfterWrite]);
+  }, [orders, products, refreshAfterWrite, writeSheet]);
 
   const addOrder = useCallback((data: Omit<Order, "id" | "createdAt">, initialPaymentMethod: Payment["method"] = "Cash"): Order => {
     const o = normalizeOrderAmounts({ ...data, id: genId(), createdAt: now() }, [], products);
@@ -616,13 +719,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setPayments(prev => [...prev, initialPayment]);
     }
 
-    const writes = [syncToSheets("insert", "Orders", o)];
+    const writes = [writeSheet("insert", "Orders", o)];
     if (initialPayment) {
-      writes.push(syncToSheets("insert", "Payments", initialPayment));
+      writes.push(writeSheet("insert", "Payments", initialPayment));
     }
     void refreshAfterWrite(writes);
     return o;
-  }, [products, refreshAfterWrite]);
+  }, [products, refreshAfterWrite, writeSheet]);
 
   const updateOrder = useCallback((o: Order) => {
     const linkedPayments = payments.filter(payment => payment.orderId === o.id);
@@ -631,7 +734,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const missingPaidAmount = Math.max(0, updatedOrder.paidAmount - linkedPaid);
 
     setOrders(prev => prev.map(x => x.id === updatedOrder.id ? updatedOrder : x));
-    const writes = [syncToSheets("update", "Orders", updatedOrder)];
+    const writes = [writeSheet("update", "Orders", updatedOrder)];
 
     if (missingPaidAmount > 0) {
       const adjustmentPayment: Payment = {
@@ -647,10 +750,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         createdAt: now(),
       };
       setPayments(prev => [...prev, adjustmentPayment]);
-      writes.push(syncToSheets("insert", "Payments", adjustmentPayment));
+      writes.push(writeSheet("insert", "Payments", adjustmentPayment));
     }
     void refreshAfterWrite(writes);
-  }, [payments, products, refreshAfterWrite]);
+  }, [payments, products, refreshAfterWrite, writeSheet]);
 
   const deleteOrder = useCallback((id: string) => {
     const order = orders.find(x => x.id === id);
@@ -665,10 +768,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return prev.filter(payment => payment.orderId !== id);
     });
     void refreshAfterWrite([
-      syncToSheets("delete", "Orders", { id }),
-      ...linkedPayments.map(payment => syncToSheets("delete", "Payments", { id: payment.id })),
+      writeSheet("delete", "Orders", { id }),
+      ...linkedPayments.map(payment => writeSheet("delete", "Payments", { id: payment.id })),
     ]);
-  }, [orders, payments, refreshAfterWrite]);
+  }, [orders, payments, refreshAfterWrite, writeSheet]);
 
   const addPayment = useCallback((data: Omit<Payment, "id" | "createdAt">): Payment => {
     const p = { ...data, id: genId(), createdAt: now() };
@@ -678,15 +781,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (updatedOrder) {
       setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
     }
-    const writes = [syncToSheets("insert", "Payments", p)];
-    if (updatedOrder) writes.push(syncToSheets("update", "Orders", updatedOrder));
+    const writes = [writeSheet("insert", "Payments", p)];
+    if (updatedOrder) writes.push(writeSheet("update", "Orders", updatedOrder));
     void refreshAfterWrite(writes);
     return p;
-  }, [orders, products, refreshAfterWrite]);
+  }, [orders, products, refreshAfterWrite, writeSheet]);
 
   const updatePayment = useCallback((p: Payment) => {
     const nextPayments = payments.map(x => x.id === p.id ? p : x);
-    const writes = [syncToSheets("update", "Payments", p)];
+    const writes = [writeSheet("update", "Payments", p)];
     const nextOrders = orders.map(order => {
       const hasCurrentPayment = nextPayments.some(payment => payment.id === p.id && payment.orderId === order.id);
       const hadPreviousPayment = payments.some(payment => payment.id === p.id && payment.orderId === order.id);
@@ -694,13 +797,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const linkedPayments = nextPayments.filter(payment => payment.orderId === order.id);
       const paidAmount = linkedPayments.reduce((sum, payment) => sum + toMoney(payment.amount), 0);
       const updated = normalizeOrderAmounts({ ...order, paidAmount }, linkedPayments, products);
-      writes.push(syncToSheets("update", "Orders", updated));
+      writes.push(writeSheet("update", "Orders", updated));
       return updated;
     });
     setPayments(nextPayments);
     setOrders(nextOrders);
     void refreshAfterWrite(writes);
-  }, [orders, payments, products, refreshAfterWrite]);
+  }, [orders, payments, products, refreshAfterWrite, writeSheet]);
 
   const deletePayment = useCallback((id: string) => {
     deletedIdsRef.current.Payments.add(id);
@@ -709,7 +812,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setLastDeleted({ label: `${payment.clientName} payment`, sheet: "Payments", data: payment });
     }
     const remainingPayments = payments.filter(p => p.id !== id);
-    const writes = [syncToSheets("delete", "Payments", { id })];
+    const writes = [writeSheet("delete", "Payments", { id })];
 
     setPayments(remainingPayments);
     if (payment) {
@@ -719,24 +822,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (order) {
         const updatedOrder = normalizeOrderAmounts({ ...order, paidAmount: newPaid }, linkedPayments, products);
         setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
-        writes.push(syncToSheets("update", "Orders", updatedOrder));
+        writes.push(writeSheet("update", "Orders", updatedOrder));
       }
     }
 
     void refreshAfterWrite(writes);
-  }, [orders, payments, products, refreshAfterWrite]);
+  }, [orders, payments, products, refreshAfterWrite, writeSheet]);
 
   const addExpense = useCallback((data: Omit<Expense, "id" | "createdAt">): Expense => {
     const e = { ...data, id: genId(), createdAt: now() };
     setExpenses(prev => [...prev, e]);
-    void refreshAfterWrite(syncToSheets("insert", "Expenses", e));
+    void refreshAfterWrite(writeSheet("insert", "Expenses", e));
     return e;
-  }, [refreshAfterWrite]);
+  }, [refreshAfterWrite, writeSheet]);
 
   const updateExpense = useCallback((e: Expense) => {
     setExpenses(prev => prev.map(x => x.id === e.id ? e : x));
-    void refreshAfterWrite(syncToSheets("update", "Expenses", e));
-  }, [refreshAfterWrite]);
+    void refreshAfterWrite(writeSheet("update", "Expenses", e));
+  }, [refreshAfterWrite, writeSheet]);
 
   const deleteExpense = useCallback((id: string) => {
     const expense = expenses.find(x => x.id === id);
@@ -745,20 +848,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
     deletedIdsRef.current.Expenses.add(id);
     setExpenses(prev => prev.filter(x => x.id !== id));
-    void refreshAfterWrite(syncToSheets("delete", "Expenses", { id }));
-  }, [expenses, refreshAfterWrite]);
+    void refreshAfterWrite(writeSheet("delete", "Expenses", { id }));
+  }, [expenses, refreshAfterWrite, writeSheet]);
 
   const addPersonalExpense = useCallback((data: Omit<PersonalExpense, "id" | "createdAt">): PersonalExpense => {
     const e = { ...data, id: genId(), createdAt: now() };
     setPersonalExpenses(prev => [...prev, e]);
-    void refreshAfterWrite(syncToSheets("insert", "PersonalExpenses", e));
+    void refreshAfterWrite(writeSheet("insert", "PersonalExpenses", e));
     return e;
-  }, [refreshAfterWrite]);
+  }, [refreshAfterWrite, writeSheet]);
 
   const updatePersonalExpense = useCallback((e: PersonalExpense) => {
     setPersonalExpenses(prev => prev.map(x => x.id === e.id ? e : x));
-    void refreshAfterWrite(syncToSheets("update", "PersonalExpenses", e));
-  }, [refreshAfterWrite]);
+    void refreshAfterWrite(writeSheet("update", "PersonalExpenses", e));
+  }, [refreshAfterWrite, writeSheet]);
 
   const deletePersonalExpense = useCallback((id: string) => {
     const expense = personalExpenses.find(x => x.id === id);
@@ -767,8 +870,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
     deletedIdsRef.current.PersonalExpenses.add(id);
     setPersonalExpenses(prev => prev.filter(x => x.id !== id));
-    void refreshAfterWrite(syncToSheets("delete", "PersonalExpenses", { id }));
-  }, [personalExpenses, refreshAfterWrite]);
+    void refreshAfterWrite(writeSheet("delete", "PersonalExpenses", { id }));
+  }, [personalExpenses, refreshAfterWrite, writeSheet]);
 
   const renewOrder = useCallback((id: string): Order | null => {
     const source = orders.find(order => order.id === id);
@@ -807,11 +910,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     setOrders(prev => prev.map(order => order.id === source.id ? renewedSource : order).concat(nextOrder));
     void refreshAfterWrite([
-      syncToSheets("update", "Orders", renewedSource),
-      syncToSheets("insert", "Orders", nextOrder),
+      writeSheet("update", "Orders", renewedSource),
+      writeSheet("insert", "Orders", nextOrder),
     ]);
     return nextOrder;
-  }, [orders, products, refreshAfterWrite]);
+  }, [orders, products, refreshAfterWrite, writeSheet]);
 
   const exportData = useCallback((): DataSnapshot => ({
     version: 1,
@@ -843,7 +946,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     setExpenses(nextExpenses);
     setPersonalExpenses(nextPersonalExpenses);
 
-    void refreshAfterWrite(syncAllToSheets({
+    void refreshAfterWrite(writeAllSheets({
       Clients: nextClients,
       Products: nextProducts,
       Orders: nextOrders,
@@ -852,7 +955,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       PersonalExpenses: nextPersonalExpenses,
     }));
     return true;
-  }, [refreshAfterWrite]);
+  }, [refreshAfterWrite, writeAllSheets]);
 
   const undoLastDelete = useCallback(() => {
     if (!lastDeleted) return false;
@@ -862,13 +965,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (lastDeleted.sheet === "Clients") {
       deletedIdsRef.current.Clients.delete(lastDeleted.data.id);
       setClients(prev => prev.some(item => item.id === lastDeleted.data.id) ? prev : [...prev, lastDeleted.data]);
-      writes.push(syncToSheets("insert", "Clients", lastDeleted.data));
+      writes.push(writeSheet("insert", "Clients", lastDeleted.data));
     }
 
     if (lastDeleted.sheet === "Products") {
       deletedIdsRef.current.Products.delete(lastDeleted.data.id);
       setProducts(prev => prev.some(item => item.id === lastDeleted.data.id) ? prev : [...prev, lastDeleted.data]);
-      writes.push(syncToSheets("insert", "Products", lastDeleted.data));
+      writes.push(writeSheet("insert", "Products", lastDeleted.data));
     }
 
     if (lastDeleted.sheet === "Orders") {
@@ -879,8 +982,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         const existing = new Set(prev.map(payment => payment.id));
         return [...prev, ...lastDeleted.linkedPayments.filter(payment => !existing.has(payment.id))];
       });
-      writes.push(syncToSheets("insert", "Orders", lastDeleted.data));
-      lastDeleted.linkedPayments.forEach(payment => writes.push(syncToSheets("insert", "Payments", payment)));
+      writes.push(writeSheet("insert", "Orders", lastDeleted.data));
+      lastDeleted.linkedPayments.forEach(payment => writes.push(writeSheet("insert", "Payments", payment)));
     }
 
     if (lastDeleted.sheet === "Payments") {
@@ -896,26 +999,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         setOrders(prev => prev.map(item => item.id === updatedOrder.id ? updatedOrder : item));
       }
 
-      writes.push(syncToSheets("insert", "Payments", payment));
-      if (updatedOrder) writes.push(syncToSheets("update", "Orders", updatedOrder));
+      writes.push(writeSheet("insert", "Payments", payment));
+      if (updatedOrder) writes.push(writeSheet("update", "Orders", updatedOrder));
     }
 
     if (lastDeleted.sheet === "Expenses") {
       deletedIdsRef.current.Expenses.delete(lastDeleted.data.id);
       setExpenses(prev => prev.some(item => item.id === lastDeleted.data.id) ? prev : [...prev, lastDeleted.data]);
-      writes.push(syncToSheets("insert", "Expenses", lastDeleted.data));
+      writes.push(writeSheet("insert", "Expenses", lastDeleted.data));
     }
 
     if (lastDeleted.sheet === "PersonalExpenses") {
       deletedIdsRef.current.PersonalExpenses.delete(lastDeleted.data.id);
       setPersonalExpenses(prev => prev.some(item => item.id === lastDeleted.data.id) ? prev : [...prev, lastDeleted.data]);
-      writes.push(syncToSheets("insert", "PersonalExpenses", lastDeleted.data));
+      writes.push(writeSheet("insert", "PersonalExpenses", lastDeleted.data));
     }
 
     setLastDeleted(null);
     void refreshAfterWrite(writes);
     return true;
-  }, [lastDeleted, orders, payments, products, refreshAfterWrite]);
+  }, [lastDeleted, orders, payments, products, refreshAfterWrite, writeSheet]);
 
   return (
     <DataContext.Provider value={{
@@ -929,7 +1032,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       renewOrder,
       exportData, importData,
       undoLastDelete, lastDeletedLabel: lastDeleted?.label ?? null,
-      syncNow, isSyncing, lastSynced, lastSyncError,
+      syncNow, isSyncing, lastSynced, lastSyncError, isSheetSyncEnabled: canUseSheets,
     }}>
       {children}
     </DataContext.Provider>

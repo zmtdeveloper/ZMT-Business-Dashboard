@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/context/AuthContext";
 import { useData } from "@/context/DataContext";
-import { isSheetsConfigured } from "@/services/sheetsSync";
 import {
   LayoutDashboard, Users, Package, ShoppingCart,
   CreditCard, Receipt, BarChart3, WalletCards, DatabaseBackup, Repeat2, LogOut, RefreshCw,
@@ -27,8 +26,8 @@ const NAV_ITEMS = [
 ];
 
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
-  const { logout } = useAuth();
-  const { clients, orders, payments, syncNow, isSyncing, lastSynced, lastSyncError, undoLastDelete, lastDeletedLabel } = useData();
+  const { currentUser, logout } = useAuth();
+  const { clients, orders, payments, syncNow, isSyncing, lastSynced, lastSyncError, undoLastDelete, lastDeletedLabel, isSheetSyncEnabled } = useData();
   const { toast } = useToast();
   const [location] = useLocation();
   const [globalSearch, setGlobalSearch] = useState("");
@@ -176,7 +175,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
             Undo {lastDeletedLabel}
           </Button>
         )}
-        {isSheetsConfigured && (
+        {isSheetSyncEnabled && (
           <Button
             data-testid="btn-sync"
             variant="ghost"
@@ -198,8 +197,8 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
             ZM
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">Business Owner</p>
-            <p className="text-xs text-cyan-400/60">Admin</p>
+            <p className="text-sm font-medium text-white truncate">{currentUser?.name ?? "Business Owner"}</p>
+            <p className="text-xs text-cyan-400/60">{currentUser?.role === "showcase" ? "Showcase" : "Admin"}</p>
           </div>
           <Button
             data-testid="btn-logout"

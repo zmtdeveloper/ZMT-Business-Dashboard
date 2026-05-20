@@ -73,14 +73,21 @@ function Router() {
 }
 
 function App() {
+  function AppRoutes() {
+    const { isAuthenticated } = useAuth();
+    const routes = (
+      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+        <Router />
+      </WouterRouter>
+    );
+
+    return isAuthenticated ? <DataProvider>{routes}</DataProvider> : routes;
+  }
+
   return (
     <TooltipProvider>
       <AuthProvider>
-        <DataProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
-        </DataProvider>
+        <AppRoutes />
       </AuthProvider>
     </TooltipProvider>
   );

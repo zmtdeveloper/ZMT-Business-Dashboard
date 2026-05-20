@@ -59,7 +59,7 @@ export default function Login() {
             <CardTitle className="text-white text-lg flex items-center gap-2">
               <Lock className="w-4 h-4 text-cyan-400" /> Sign In
             </CardTitle>
-            <CardDescription className="text-cyan-300/60">Enter your password to access the dashboard</CardDescription>
+            <CardDescription className="text-cyan-300/60">Enter owner password, or showcase password for demo mode</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
