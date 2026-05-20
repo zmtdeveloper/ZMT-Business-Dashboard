@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useData, Client, Order, Payment } from "@/context/DataContext";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { openWhatsAppReminder, printOrderInvoice } from "@/lib/businessActions";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, Pencil, Trash2, ShoppingCart, UserPlus, X } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, ShoppingCart, UserPlus, X, MessageCircle, Printer, Repeat2 } from "lucide-react";
 
 const emptyForm = {
   clientId: "", productId: "", quantity: "1", deliveryDate: new Date().toISOString().slice(0, 10),
@@ -36,7 +37,7 @@ const PAYMENT_STATUS_COLORS: Record<string, string> = {
 };
 
 export default function Orders() {
-  const { orders, clients, products, addClient, addOrder, updateOrder, deleteOrder } = useData();
+  const { orders, payments, clients, products, addClient, addOrder, updateOrder, deleteOrder, renewOrder } = useData();
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -223,6 +224,13 @@ export default function Orders() {
     toast({ title: "Order deleted", variant: "destructive" });
   }
 
+  function handleRenew(id: string) {
+    const order = renewOrder(id);
+    if (order) {
+      toast({ title: "Order renewed", description: `${order.clientName} - ${order.productName}` });
+    }
+  }
+
   const previewTotal = calcTotalAmount();
   const previewPaid = calcPaidAmount();
   const previewRemaining = calcRemainingAmount();
@@ -288,7 +296,12 @@ export default function Orders() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-12">No orders found.</TableCell>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
+                      <div className="space-y-3">
+                        <p>No orders found.</p>
+                        {!search && statusFilter === "All" && <Button size="sm" onClick={openAdd} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-3.5 h-3.5 mr-1" /> Create First Order</Button>}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ) : filtered.map(o => (
                   <TableRow key={o.id} data-testid={`row-order-${o.id}`} className="hover:bg-muted/30">
@@ -314,6 +327,19 @@ export default function Orders() {
                     <TableCell className="text-sm text-muted-foreground hidden lg:table-cell whitespace-nowrap">{formatDate(o.expiryDate)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {o.remainingAmount > 0 && (
+                          <Button data-testid={`btn-remind-order-${o.id}`} variant="ghost" size="icon" className="w-8 h-8 text-emerald-700" title="WhatsApp payment reminder" onClick={() => openWhatsAppReminder(o, clients.find(c => c.id === o.clientId))}>
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        <Button data-testid={`btn-print-order-${o.id}`} variant="ghost" size="icon" className="w-8 h-8" title="Print invoice" onClick={() => printOrderInvoice(o, payments.filter(payment => payment.orderId === o.id))}>
+                          <Printer className="w-3.5 h-3.5" />
+                        </Button>
+                        {o.orderStatus !== "Renewed" && o.orderStatus !== "Cancelled" && (
+                          <Button data-testid={`btn-renew-order-${o.id}`} variant="ghost" size="icon" className="w-8 h-8 text-cyan-700" title="Renew order" onClick={() => handleRenew(o.id)}>
+                            <Repeat2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                         <Button data-testid={`btn-edit-order-${o.id}`} variant="ghost" size="icon" className="w-8 h-8" onClick={() => openEdit(o)}>
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>

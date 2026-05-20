@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useData, Payment } from "@/context/DataContext";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { printPaymentReceipt } from "@/lib/businessActions";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, Trash2, CreditCard } from "lucide-react";
+import { Search, Plus, Trash2, CreditCard, Printer } from "lucide-react";
 
 const METHODS: Payment["method"][] = ["Cash", "Bank Transfer", "JazzCash", "Easypaisa", "Other"];
 const emptyForm = { orderId: "", amount: "", method: "Cash" as Payment["method"], paymentDate: new Date().toISOString().slice(0, 10), notes: "" };
@@ -80,7 +81,7 @@ export default function Payments() {
           <CreditCard className="w-5 h-5 text-cyan-600" />
           <div>
             <h1 className="text-xl font-bold">Payments</h1>
-            <p className="text-xs text-muted-foreground">{payments.length} records — Total: {formatCurrency(totalReceived)}</p>
+            <p className="text-xs text-muted-foreground">{payments.length} records - Total: {formatCurrency(totalReceived)}</p>
           </div>
         </div>
         <Button data-testid="btn-add-payment" onClick={openAdd} className="bg-cyan-600 hover:bg-cyan-700 text-white">
@@ -123,7 +124,12 @@ export default function Payments() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground py-12">No payments recorded yet.</TableCell>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-12">
+                      <div className="space-y-3">
+                        <p>No payments recorded yet.</p>
+                        {unpaidOrders.length > 0 && <Button size="sm" onClick={openAdd} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-3.5 h-3.5 mr-1" /> Record First Payment</Button>}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ) : [...filtered].sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()).map(p => (
                   <TableRow key={p.id} data-testid={`row-payment-${p.id}`} className="hover:bg-muted/30">
@@ -141,9 +147,14 @@ export default function Payments() {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">{formatDate(p.paymentDate)}</TableCell>
                     <TableCell className="text-right">
-                      <Button data-testid={`btn-delete-payment-${p.id}`} variant="ghost" size="icon" className="w-8 h-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button data-testid={`btn-print-payment-${p.id}`} variant="ghost" size="icon" className="w-8 h-8" onClick={() => printPaymentReceipt(p)}>
+                          <Printer className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button data-testid={`btn-delete-payment-${p.id}`} variant="ghost" size="icon" className="w-8 h-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(p.id)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -168,7 +179,7 @@ export default function Payments() {
                 <SelectContent>
                   {unpaidOrders.map(o => (
                     <SelectItem key={o.id} value={o.id}>
-                      {o.clientName} — {o.productName} ({formatCurrency(o.remainingAmount)} left)
+                      {o.clientName} - {o.productName} ({formatCurrency(o.remainingAmount)} left)
                     </SelectItem>
                   ))}
                 </SelectContent>

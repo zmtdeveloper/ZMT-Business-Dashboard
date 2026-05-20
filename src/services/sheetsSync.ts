@@ -12,9 +12,10 @@ export async function syncToSheets(action: string, sheet: string, data: unknown)
       method: "POST",
       body: JSON.stringify({ action, sheet, token: TOKEN, data }),
     });
-    return await response.json();
+    const json = await response.json();
+    return { ...json, action, sheet };
   } catch {
-    return { success: false, reason: "network_error" };
+    return { success: false, reason: "network_error", action, sheet };
   }
 }
 

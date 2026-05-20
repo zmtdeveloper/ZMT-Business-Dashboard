@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useData, Client } from "@/context/DataContext";
 import { formatDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
@@ -10,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, Pencil, Trash2, Users } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Users, Eye } from "lucide-react";
 
 const emptyForm = { name: "", phone: "", email: "", address: "", notes: "" };
 
@@ -54,8 +55,12 @@ export default function Clients() {
   }
 
   function handleDelete(id: string) {
-    deleteClient(id);
+    const deleted = deleteClient(id);
     setDeleteId(null);
+    if (!deleted) {
+      toast({ title: "Client has linked orders", description: "Delete or reassign this client's orders first.", variant: "destructive" });
+      return;
+    }
     toast({ title: "Client deleted", variant: "destructive" });
   }
 
@@ -115,24 +120,32 @@ export default function Clients() {
                 {filtered.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center text-muted-foreground py-12">
-                      {search ? "No clients match your search" : "No clients yet. Add your first client."}
+                      <div className="space-y-3">
+                        <p>{search ? "No clients match your search" : "No clients yet. Add your first client."}</p>
+                        {!search && <Button size="sm" onClick={openAdd} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-3.5 h-3.5 mr-1" /> Add First Client</Button>}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : filtered.map(c => (
                   <TableRow key={c.id} data-testid={`row-client-${c.id}`} className="hover:bg-muted/30">
                     <TableCell>
-                      <p className="font-semibold text-sm">{c.name}</p>
-                      <p className="text-xs text-muted-foreground sm:hidden">{c.phone || "—"}</p>
+                      <Link href={`/clients/${c.id}`} className="font-semibold text-sm text-cyan-700 hover:underline">{c.name}</Link>
+                      <p className="text-xs text-muted-foreground sm:hidden">{c.phone || "-"}</p>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">{c.phone || "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">{c.email || "—"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-36 truncate hidden md:table-cell">{c.address || "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">{c.phone || "-"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground hidden sm:table-cell">{c.email || "-"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-36 truncate hidden md:table-cell">{c.address || "-"}</TableCell>
                     <TableCell className="text-sm text-muted-foreground hidden lg:table-cell">{formatDate(c.createdAt)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button data-testid={`btn-edit-client-${c.id}`} variant="ghost" size="icon" className="w-8 h-8" onClick={() => openEdit(c)}>
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
+                        <Link href={`/clients/${c.id}`}>
+                          <Button data-testid={`btn-view-client-${c.id}`} variant="ghost" size="icon" className="w-8 h-8">
+                            <Eye className="w-3.5 h-3.5" />
+                          </Button>
+                        </Link>
                         <Button data-testid={`btn-delete-client-${c.id}`} variant="ghost" size="icon" className="w-8 h-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(c.id)}>
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>

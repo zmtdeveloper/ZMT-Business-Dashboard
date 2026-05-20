@@ -8,8 +8,14 @@ The app is built with React, TypeScript, Vite, Tailwind CSS, Radix UI primitives
 
 - Client, product, order, payment, and expense management
 - Dashboard KPIs for revenue, expenses, profit, pending payments, and renewals
+- Owner Wallet for personal/daily costs tracked separately from business expenses
+- Client detail pages with order history, payment history, pending balance, and timeline
+- One-click order renewals, WhatsApp payment reminders, and printable invoices/receipts
+- Dedicated Renewals page with due/expired filters, expected value, renewal history, and lost-renewal tracking
+- Data tools for JSON backup/export, import/restore, and undo-last-delete
 - Order expiry and renewal tracking
 - Payment status calculation across orders and payments
+- Cashflow, product profit, lifetime client value, pending aging, and monthly saving reports
 - Responsive layout for desktop and mobile
 - Local storage fallback for offline/private use
 - Optional Google Sheets sync through Apps Script
@@ -100,6 +106,7 @@ Products
 Orders
 Payments
 Expenses
+PersonalExpenses
 ```
 
 2. Open `Extensions > Apps Script`.

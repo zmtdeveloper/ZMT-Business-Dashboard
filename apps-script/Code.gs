@@ -6,7 +6,7 @@
  *
  * SETUP INSTRUCTIONS:
  * 1. Create a new Google Sheet with the following tabs:
- *    Clients | Products | Orders | Payments | Expenses
+ *    Clients | Products | Orders | Payments | Expenses | PersonalExpenses
  * 2. Go to Extensions > Apps Script
  * 3. Paste this entire file into the editor
  * 4. Set your secret token:
@@ -20,9 +20,10 @@
  * Sheet Column Structure (must match exactly):
  * Clients:  id | name | phone | email | address | notes | createdAt
  * Products: id | name | salePrice | costPrice | durationDays | status | notes | createdAt
- * Orders:   id | clientId | clientName | productId | productName | quantity | deliveryDate | expiryDate | totalAmount | paidAmount | remainingAmount | paymentStatus | orderStatus | notes | createdAt
+ * Orders:   id | clientId | clientName | productId | productName | quantity | deliveryDate | expiryDate | totalAmount | paidAmount | remainingAmount | paymentStatus | orderStatus | notes | createdAt | renewedFromOrderId | renewedToOrderId | renewedAt
  * Payments: id | orderId | clientId | clientName | orderDescription | amount | method | paymentDate | notes | createdAt
  * Expenses: id | title | category | amount | expenseDate | notes | createdAt
+ * PersonalExpenses: id | title | category | amount | expenseDate | method | notes | createdAt
  */
 
 
@@ -43,34 +44,57 @@ function validateToken(token) {
 const SHEET_HEADERS = {
   Clients:  ["id", "name", "phone", "email", "address", "notes", "createdAt"],
   Products: ["id", "name", "salePrice", "costPrice", "durationDays", "status", "notes", "createdAt"],
-  Orders:   ["id", "clientId", "clientName", "productId", "productName", "quantity", "deliveryDate", "expiryDate", "totalAmount", "paidAmount", "remainingAmount", "paymentStatus", "orderStatus", "notes", "createdAt"],
+  Orders:   ["id", "clientId", "clientName", "productId", "productName", "quantity", "deliveryDate", "expiryDate", "totalAmount", "paidAmount", "remainingAmount", "paymentStatus", "orderStatus", "notes", "createdAt", "renewedFromOrderId", "renewedToOrderId", "renewedAt"],
   Payments: ["id", "orderId", "clientId", "clientName", "orderDescription", "amount", "method", "paymentDate", "notes", "createdAt"],
-  Expenses: ["id", "title", "category", "amount", "expenseDate", "notes", "createdAt"]
+  Expenses: ["id", "title", "category", "amount", "expenseDate", "notes", "createdAt"],
+  PersonalExpenses: ["id", "title", "category", "amount", "expenseDate", "method", "notes", "createdAt"]
 };
+
+const SHEET_ALIASES = {
+  PersonalExpenses: ["Personal Expenses", "Owner Wallet", "OwnerWallet", "Personal Costs"]
+};
+
+function getCanonicalSheetName(sheetName) {
+  if (SHEET_HEADERS[sheetName]) return sheetName;
+  const names = Object.keys(SHEET_ALIASES);
+  for (let i = 0; i < names.length; i++) {
+    const canonical = names[i];
+    if (SHEET_ALIASES[canonical].indexOf(sheetName) !== -1) return canonical;
+  }
+  return sheetName;
+}
 
 function getOrCreateSheet(sheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(sheetName);
+  const canonicalName = getCanonicalSheetName(sheetName);
+  const aliases = SHEET_ALIASES[canonicalName] || [];
+  let sheet = ss.getSheetByName(canonicalName);
   if (!sheet) {
-    sheet = ss.insertSheet(sheetName);
-    const headers = SHEET_HEADERS[sheetName];
-    if (headers) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-      sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#e2e8f0");
-      sheet.setFrozenRows(1);
+    for (let i = 0; i < aliases.length; i++) {
+      sheet = ss.getSheetByName(aliases[i]);
+      if (sheet) break;
     }
+  }
+  if (!sheet) {
+    sheet = ss.insertSheet(canonicalName);
+  }
+  const headers = SHEET_HEADERS[canonicalName];
+  if (headers) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold").setBackground("#e2e8f0");
+    sheet.setFrozenRows(1);
   }
   return sheet;
 }
 
-function sheetToObjects(sheet) {
-  const headers = SHEET_HEADERS[sheet.getName()];
+function sheetToObjects(sheet, sheetName) {
+  const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName || sheet.getName())];
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
   const data = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
   return data
-    .filter(row => row[0] !== "" && row[0] !== null)
+    .filter(row => row.some(cell => cell !== "" && cell !== null))
     .map(row => {
       const obj = {};
       headers.forEach((key, i) => {
@@ -85,8 +109,8 @@ function sheetToObjects(sheet) {
     });
 }
 
-function findRowById(sheet, id) {
-  const headers = SHEET_HEADERS[sheet.getName()];
+function findRowById(sheet, id, sheetName) {
+  const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName || sheet.getName())];
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return -1;
   const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat();
@@ -95,7 +119,7 @@ function findRowById(sheet, id) {
 }
 
 function objectToRow(sheetName, obj) {
-  const headers = SHEET_HEADERS[sheetName];
+  const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName)];
   return headers.map(key => obj[key] !== undefined ? obj[key] : "");
 }
 
@@ -112,7 +136,7 @@ function setupSheets() {
 
 function getAllRows(sheetName) {
   const sheet = getOrCreateSheet(sheetName);
-  return sheetToObjects(sheet);
+  return sheetToObjects(sheet, sheetName);
 }
 
 function insertRow(sheetName, data) {
@@ -124,9 +148,9 @@ function insertRow(sheetName, data) {
 
 function updateRow(sheetName, data) {
   const sheet = getOrCreateSheet(sheetName);
-  const rowNum = findRowById(sheet, data.id);
+  const rowNum = findRowById(sheet, data.id, sheetName);
   if (rowNum === -1) return { success: false, message: "Row not found: " + data.id };
-  const headers = SHEET_HEADERS[sheetName];
+  const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName)];
   const row = objectToRow(sheetName, data);
   sheet.getRange(rowNum, 1, 1, headers.length).setValues([row]);
   return { success: true, id: data.id };
@@ -134,7 +158,7 @@ function updateRow(sheetName, data) {
 
 function deleteRow(sheetName, id) {
   const sheet = getOrCreateSheet(sheetName);
-  const rowNum = findRowById(sheet, id);
+  const rowNum = findRowById(sheet, id, sheetName);
   if (rowNum === -1) return { success: false, message: "Row not found: " + id };
   sheet.deleteRow(rowNum);
   return { success: true, id: id };
@@ -142,7 +166,7 @@ function deleteRow(sheetName, id) {
 
 function replaceAllRows(sheetName, rows) {
   const sheet = getOrCreateSheet(sheetName);
-  const headers = SHEET_HEADERS[sheetName];
+  const headers = SHEET_HEADERS[getCanonicalSheetName(sheetName)];
   const lastRow = sheet.getLastRow();
   if (lastRow > 1) {
     sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();

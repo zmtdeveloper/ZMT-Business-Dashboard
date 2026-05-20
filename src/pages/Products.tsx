@@ -61,8 +61,12 @@ export default function Products() {
   }
 
   function handleDelete(id: string) {
-    deleteProduct(id);
+    const deleted = deleteProduct(id);
     setDeleteId(null);
+    if (!deleted) {
+      toast({ title: "Product has linked orders", description: "Delete or renew those orders before removing the product.", variant: "destructive" });
+      return;
+    }
     toast({ title: "Product deleted", variant: "destructive" });
   }
 
@@ -116,7 +120,10 @@ export default function Products() {
                 {filtered.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
-                      {search ? "No products match your search" : "No products yet."}
+                      <div className="space-y-3">
+                        <p>{search ? "No products match your search" : "No products yet."}</p>
+                        {!search && <Button size="sm" onClick={openAdd} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-3.5 h-3.5 mr-1" /> Add First Product</Button>}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : filtered.map(p => (

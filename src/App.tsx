@@ -6,11 +6,15 @@ import { AppLayout } from "@/components/AppLayout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import Clients from "@/pages/Clients";
+import ClientDetail from "@/pages/ClientDetail";
 import Products from "@/pages/Products";
 import Orders from "@/pages/Orders";
 import Payments from "@/pages/Payments";
 import Expenses from "@/pages/Expenses";
+import OwnerWallet from "@/pages/OwnerWallet";
+import Renewals from "@/pages/Renewals";
 import Reports from "@/pages/Reports";
+import DataTools from "@/pages/DataTools";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
@@ -30,6 +34,9 @@ function Router() {
       <Route path="/dashboard">
         {() => <ProtectedRoute component={Dashboard} />}
       </Route>
+      <Route path="/clients/:id">
+        {() => <ProtectedRoute component={ClientDetail} />}
+      </Route>
       <Route path="/clients">
         {() => <ProtectedRoute component={Clients} />}
       </Route>
@@ -45,8 +52,17 @@ function Router() {
       <Route path="/expenses">
         {() => <ProtectedRoute component={Expenses} />}
       </Route>
+      <Route path="/owner-wallet">
+        {() => <ProtectedRoute component={OwnerWallet} />}
+      </Route>
+      <Route path="/renewals">
+        {() => <ProtectedRoute component={Renewals} />}
+      </Route>
       <Route path="/reports">
         {() => <ProtectedRoute component={Reports} />}
+      </Route>
+      <Route path="/data-tools">
+        {() => <ProtectedRoute component={DataTools} />}
       </Route>
       <Route path="/">
         {() => <Redirect to="/dashboard" />}

@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/context/AuthContext";
 import { useData } from "@/context/DataContext";
 import { isSheetsConfigured } from "@/services/sheetsSync";
 import {
   LayoutDashboard, Users, Package, ShoppingCart,
-  CreditCard, Receipt, BarChart3, LogOut, RefreshCw,
-  CheckCircle, Menu, X,
+  CreditCard, Receipt, BarChart3, WalletCards, DatabaseBackup, Repeat2, LogOut, RefreshCw,
+  CheckCircle, Menu, RotateCcw, Search, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/toaster";
+import { useToast } from "@/hooks/use-toast";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -19,13 +20,76 @@ const NAV_ITEMS = [
   { href: "/orders", label: "Orders", icon: ShoppingCart },
   { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/expenses", label: "Expenses", icon: Receipt },
+  { href: "/owner-wallet", label: "Owner Wallet", icon: WalletCards },
+  { href: "/renewals", label: "Renewals", icon: Repeat2 },
   { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/data-tools", label: "Data Tools", icon: DatabaseBackup },
 ];
 
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
   const { logout } = useAuth();
-  const { syncNow, isSyncing, lastSynced } = useData();
+  const { clients, orders, payments, syncNow, isSyncing, lastSynced, lastSyncError, undoLastDelete, lastDeletedLabel } = useData();
+  const { toast } = useToast();
   const [location] = useLocation();
+  const [globalSearch, setGlobalSearch] = useState("");
+
+  useEffect(() => {
+    if (!lastSyncError) return;
+    toast({ title: "Google Sheets sync issue", description: lastSyncError, variant: "destructive" });
+  }, [lastSyncError, toast]);
+
+  const globalResults = useMemo(() => {
+    const query = globalSearch.trim().toLowerCase();
+    if (!query) return [];
+
+    const clientResults = clients
+      .filter(client =>
+        client.name.toLowerCase().includes(query) ||
+        client.phone.toLowerCase().includes(query) ||
+        client.email.toLowerCase().includes(query)
+      )
+      .slice(0, 4)
+      .map(client => ({
+        href: `/clients/${client.id}`,
+        label: client.name,
+        detail: client.phone || client.email || "Client profile",
+        type: "Client",
+      }));
+
+    const orderResults = orders
+      .filter(order =>
+        order.clientName.toLowerCase().includes(query) ||
+        order.productName.toLowerCase().includes(query)
+      )
+      .slice(0, 4)
+      .map(order => ({
+        href: "/orders",
+        label: order.clientName,
+        detail: `${order.productName} - ${order.paymentStatus}`,
+        type: "Order",
+      }));
+
+    const paymentResults = payments
+      .filter(payment =>
+        payment.clientName.toLowerCase().includes(query) ||
+        payment.orderDescription.toLowerCase().includes(query)
+      )
+      .slice(0, 4)
+      .map(payment => ({
+        href: "/payments",
+        label: payment.clientName,
+        detail: `${payment.orderDescription} - ${payment.method}`,
+        type: "Payment",
+      }));
+
+    return [...clientResults, ...orderResults, ...paymentResults].slice(0, 8);
+  }, [clients, orders, payments, globalSearch]);
+
+  function handleUndoDelete() {
+    if (undoLastDelete()) {
+      toast({ title: "Delete undone", description: `${lastDeletedLabel} restored.` });
+    }
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -39,6 +103,40 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
             <p className="text-xs text-cyan-400/60 leading-tight">Dashboard</p>
           </div>
         </Link>
+      </div>
+
+      <div className="px-3 pt-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-cyan-400/60" />
+          <input
+            data-testid="input-global-search"
+            value={globalSearch}
+            onChange={event => setGlobalSearch(event.target.value)}
+            placeholder="Search..."
+            className="w-full rounded-lg border border-sidebar-border bg-sidebar-accent/60 py-2 pl-9 pr-3 text-sm text-cyan-50 placeholder:text-cyan-400/50 outline-none focus:ring-2 focus:ring-cyan-500"
+          />
+          {globalSearch && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto rounded-lg border border-sidebar-border bg-sidebar shadow-xl">
+              {globalResults.length === 0 ? (
+                <div className="px-3 py-3 text-xs text-cyan-300/60">No results found</div>
+              ) : globalResults.map((result, index) => (
+                <Link
+                  key={`${result.type}-${result.label}-${index}`}
+                  href={result.href}
+                  onClick={() => {
+                    setGlobalSearch("");
+                    onNavClick?.();
+                  }}
+                  className="block px-3 py-2 text-left hover:bg-sidebar-accent"
+                >
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-cyan-400/60">{result.type}</span>
+                  <span className="block truncate text-sm font-semibold text-white">{result.label}</span>
+                  <span className="block truncate text-xs text-cyan-300/60">{result.detail}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <nav className="flex-1 py-5 px-3 overflow-y-auto space-y-0.5">
@@ -66,6 +164,18 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
       </nav>
 
       <div className="p-3 border-t border-sidebar-border space-y-2">
+        {lastDeletedLabel && (
+          <Button
+            data-testid="btn-undo-delete"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-cyan-300/70 hover:text-cyan-100 hover:bg-sidebar-accent text-xs gap-2"
+            onClick={handleUndoDelete}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Undo {lastDeletedLabel}
+          </Button>
+        )}
         {isSheetsConfigured && (
           <Button
             data-testid="btn-sync"

@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useData } from "@/context/DataContext";
 import { formatCurrency, formatDate, daysUntil, getMonthKey, getMonthLabel } from "@/lib/format";
 import {
   getOrderCostsForMonth,
   getOrderCostsTotal,
+  getPendingForMonth,
   getPendingTotal,
   getReceivedForMonth,
   getReceivedTotal,
@@ -23,11 +24,30 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 
+function getDashboardPeriodOptions() {
+  const options = [{ key: "all", label: "All Time" }];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    options.push({ key, label: getMonthLabel(key) });
+  }
+  return options;
+}
+
+function getPeriodLabel(period: string) {
+  return period === "all" ? "All time" : getMonthLabel(period);
+}
+
 export default function Dashboard() {
   const { clients, orders, payments, expenses, products } = useData();
+  const [selectedPeriod, setSelectedPeriod] = useState("all");
 
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const isAllTime = selectedPeriod === "all";
+  const periodLabel = getPeriodLabel(selectedPeriod);
+  const periodOptions = getDashboardPeriodOptions();
 
   const monthlySales = useMemo(() =>
     getSalesForMonth(orders, currentMonth),
@@ -73,8 +93,17 @@ export default function Dashboard() {
   const totalBusinessExpenses = totalExpenses + totalOrderCosts;
 
   const pendingPayments = useMemo(() => getPendingTotal(orders), [orders]);
+  const periodSales = isAllTime ? totalSales : getSalesForMonth(orders, selectedPeriod);
+  const periodReceived = isAllTime ? totalReceived : getReceivedForMonth(orders, payments, selectedPeriod);
+  const periodBusinessExpenses = isAllTime
+    ? totalBusinessExpenses
+    : expenses.filter(e => getMonthKey(e.expenseDate) === selectedPeriod).reduce((sum, e) => sum + e.amount, 0) + getOrderCostsForMonth(orders, products, selectedPeriod);
+  const periodPendingPayments = isAllTime ? pendingPayments : getPendingForMonth(orders, selectedPeriod);
+  const periodProfit = periodReceived - periodBusinessExpenses;
+  const periodOrders = isAllTime ? orders : orders.filter(o => getMonthKey(o.deliveryDate || o.createdAt) === selectedPeriod);
+  const periodClients = isAllTime ? clients.length : clients.filter(c => getMonthKey(c.createdAt) === selectedPeriod).length;
 
-  const pendingOrders = orders.filter(o => o.orderStatus === "Pending").length;
+  const pendingOrders = periodOrders.filter(o => o.orderStatus === "Pending").length;
   const completedOrders = orders.filter(o => o.orderStatus === "Completed").length;
 
   const expiringOrders = useMemo(() =>
@@ -116,14 +145,14 @@ export default function Dashboard() {
   }, [expenses, orders, products, currentMonth]);
 
   const stats = [
-    { label: "Total Clients", value: clients.length, icon: Users, color: "text-cyan-600", bg: "bg-cyan-50", trend: "All time" },
-    { label: "Total Sales", value: formatCurrency(totalSales), icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50", trend: `${formatCurrency(monthlySales)} this month` },
-    { label: "Total Received", value: formatCurrency(totalReceived), icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50", trend: `${formatCurrency(monthlyReceived)} this month` },
-    { label: "Pending Payments", value: formatCurrency(pendingPayments), icon: Clock, color: "text-amber-600", bg: "bg-amber-50", trend: `${orders.filter(o => o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled").length} orders` },
+    { label: "Total Clients", value: periodClients, icon: Users, color: "text-cyan-600", bg: "bg-cyan-50", trend: periodLabel },
+    { label: "Total Sales", value: formatCurrency(periodSales), icon: ShoppingCart, color: "text-blue-600", bg: "bg-blue-50", trend: periodLabel },
+    { label: "Total Received", value: formatCurrency(periodReceived), icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50", trend: periodLabel },
+    { label: "Pending Payments", value: formatCurrency(periodPendingPayments), icon: Clock, color: "text-amber-600", bg: "bg-amber-50", trend: `${periodOrders.filter(o => o.paymentStatus !== "Paid" && o.orderStatus !== "Cancelled").length} orders` },
     { label: "Pending Orders", value: pendingOrders, icon: PackageOpen, color: "text-amber-600", bg: "bg-amber-50", trend: "Action needed" },
     { label: "Renewal Alerts", value: expiringOrders.length, icon: CalendarClock, color: "text-rose-600", bg: "bg-rose-50", trend: "Expired or within 30 days" },
-    { label: "Total Expenses", value: formatCurrency(totalBusinessExpenses), icon: TrendingDown, color: "text-slate-600", bg: "bg-slate-100", trend: `${formatCurrency(monthlyBusinessExpenses)} this month` },
-    { label: "Net Profit", value: formatCurrency(totalReceived - totalBusinessExpenses), icon: Wallet, color: totalReceived - totalBusinessExpenses >= 0 ? "text-cyan-600" : "text-rose-600", bg: totalReceived - totalBusinessExpenses >= 0 ? "bg-cyan-50" : "bg-rose-50", trend: totalReceived > 0 ? `${Math.round(((totalReceived - totalBusinessExpenses) / totalReceived) * 100)}% margin` : "N/A" },
+    { label: "Total Expenses", value: formatCurrency(periodBusinessExpenses), icon: TrendingDown, color: "text-slate-600", bg: "bg-slate-100", trend: periodLabel },
+    { label: "Net Profit", value: formatCurrency(periodProfit), icon: Wallet, color: periodProfit >= 0 ? "text-cyan-600" : "text-rose-600", bg: periodProfit >= 0 ? "bg-cyan-50" : "bg-rose-50", trend: periodReceived > 0 ? `${Math.round((periodProfit / periodReceived) * 100)}% margin` : "N/A" },
   ];
 
   return (
@@ -134,11 +163,21 @@ export default function Dashboard() {
           <h1 className="text-xl font-bold text-foreground">Dashboard Overview</h1>
           <p className="text-xs text-muted-foreground">Welcome back - here's your business summary.</p>
         </div>
-        <Link href="/orders">
-          <Button data-testid="btn-new-order" className="bg-cyan-600 hover:bg-cyan-700 text-white font-medium">
-            + New Order
-          </Button>
-        </Link>
+        <div className="flex items-center gap-3">
+          <select
+            data-testid="select-dashboard-period"
+            className="text-sm border border-border rounded-lg px-3 py-2 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            value={selectedPeriod}
+            onChange={event => setSelectedPeriod(event.target.value)}
+          >
+            {periodOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>
+          <Link href="/orders">
+            <Button data-testid="btn-new-order" className="bg-cyan-600 hover:bg-cyan-700 text-white font-medium">
+              + New Order
+            </Button>
+          </Link>
+        </div>
       </header>
 
       {/* Mobile header */}
@@ -147,11 +186,21 @@ export default function Dashboard() {
           <h1 className="text-base font-bold">Overview</h1>
           <p className="text-xs text-muted-foreground">Your business summary</p>
         </div>
-        <Link href="/orders">
-          <Button data-testid="btn-new-order-mobile" size="sm" className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs">
-            + Order
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <select
+            data-testid="select-dashboard-period"
+            className="max-w-28 text-xs border border-border rounded-lg px-2 py-1.5 bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            value={selectedPeriod}
+            onChange={event => setSelectedPeriod(event.target.value)}
+          >
+            {periodOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>
+          <Link href="/orders">
+            <Button data-testid="btn-new-order-mobile" size="sm" className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs">
+              + Order
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 pb-12">
@@ -236,7 +285,14 @@ export default function Dashboard() {
                   <TableBody>
                     {recentOrders.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No orders yet</TableCell>
+                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                          <div className="space-y-3">
+                            <p>No orders yet</p>
+                            <Link href="/orders">
+                              <Button size="sm" className="bg-cyan-600 hover:bg-cyan-700 text-white">Create First Order</Button>
+                            </Link>
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ) : recentOrders.map(order => (
                       <TableRow key={order.id} data-testid={`row-order-${order.id}`} className="hover:bg-muted/30">
@@ -298,7 +354,7 @@ export default function Dashboard() {
                               {days === 0 ? "Expires today" : days < 0 ? `Expired ${Math.abs(days)}d ago` : `${days}d left`}
                             </p>
                           </div>
-                          <Link href="/orders">
+                          <Link href="/renewals">
                             <Button size="sm" className={days < 0 ? "bg-rose-100 text-rose-800 hover:bg-rose-200 shadow-none font-semibold text-xs px-2.5 shrink-0" : "bg-amber-100 text-amber-800 hover:bg-amber-200 shadow-none font-semibold text-xs px-2.5 shrink-0"}>
                               {days < 0 ? "Renew Now" : "Renew"}
                             </Button>
@@ -306,6 +362,15 @@ export default function Dashboard() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+                {expiringOrders.length > 4 && (
+                  <div className="p-3 border-t border-border">
+                    <Link href="/renewals">
+                      <Button variant="ghost" className="w-full text-cyan-600 hover:bg-cyan-50 text-xs">
+                        View All Renewals
+                      </Button>
+                    </Link>
                   </div>
                 )}
               </CardContent>

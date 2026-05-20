@@ -73,7 +73,7 @@ export default function Expenses() {
           <Receipt className="w-5 h-5 text-cyan-600" />
           <div>
             <h1 className="text-xl font-bold">Expenses</h1>
-            <p className="text-xs text-muted-foreground">{expenses.length} records — Total: {formatCurrency(grandTotal)}</p>
+            <p className="text-xs text-muted-foreground">{expenses.length} records - Total: {formatCurrency(grandTotal)}</p>
           </div>
         </div>
         <Button data-testid="btn-add-expense" onClick={openAdd} className="bg-cyan-600 hover:bg-cyan-700 text-white">
@@ -108,7 +108,7 @@ export default function Expenses() {
                   {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Badge variant="outline" className="shrink-0 self-start sm:self-auto">{filtered.length} — {formatCurrency(total)}</Badge>
+              <Badge variant="outline" className="shrink-0 self-start sm:self-auto">{filtered.length} - {formatCurrency(total)}</Badge>
             </div>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
@@ -125,7 +125,12 @@ export default function Expenses() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground py-12">No expenses found.</TableCell>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground py-12">
+                      <div className="space-y-3">
+                        <p>No expenses found.</p>
+                        {!search && categoryFilter === "All" && <Button size="sm" onClick={openAdd} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-3.5 h-3.5 mr-1" /> Add First Expense</Button>}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ) : [...filtered].sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()).map(e => (
                   <TableRow key={e.id} data-testid={`row-expense-${e.id}`} className="hover:bg-muted/30">
@@ -138,7 +143,7 @@ export default function Expenses() {
                     </TableCell>
                     <TableCell className="font-semibold text-rose-600 whitespace-nowrap">{formatCurrency(e.amount)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground hidden sm:table-cell whitespace-nowrap">{formatDate(e.expenseDate)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground max-w-40 truncate hidden md:table-cell">{e.notes || "—"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-40 truncate hidden md:table-cell">{e.notes || "-"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <Button data-testid={`btn-edit-expense-${e.id}`} variant="ghost" size="icon" className="w-8 h-8" onClick={() => openEdit(e)}>

@@ -8,7 +8,7 @@ export function formatCurrency(amount: number) {
 }
 
 export function formatDate(dateStr: string) {
-  if (!dateStr) return "—";
+  if (!dateStr) return "-";
   try {
     return new Date(dateStr).toLocaleDateString("en-PK", {
       day: "2-digit",
